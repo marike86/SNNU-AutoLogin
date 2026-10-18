@@ -1,0 +1,17 @@
+# 构建产物
+[Bb]in/
+[Oo]bj/
+release/
+installer/Output/
+
+# 本机用户配置
+*.user
+*.suo
+.vs/
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# 工具目录
+.workbuddy/

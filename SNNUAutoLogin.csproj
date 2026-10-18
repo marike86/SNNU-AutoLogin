@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>SNNUAutoLogin</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SNNUAutoLogin</AssemblyName>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <EnableMsixTooling>true</EnableMsixTooling>
+
+    <!-- 文件属性（exe 右键「属性 → 详细信息」与「应用和功能」列表里显示的内容） -->
+    <Version>1.2.0</Version>
+    <FileVersion>1.2.0.0</FileVersion>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <Product>陕师大校园网自动登录</Product>
+    <AssemblyTitle>陕师大校园网自动登录</AssemblyTitle>
+    <Company>SNNU</Company>
+    <Description>陕西师范大学校园网自动认证工具</Description>
+    <Copyright>Copyright © 2026 SNNU</Copyright>
+    <!-- 只保留简体中文资源，去掉其余 20 多种语言的 .resources.dll -->
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!--
+    发布后剔除本项目用不到的运行时组件：Windows ML（onnxruntime + DirectML 共约 39MB）、
+    桌面小组件、.NET 崩溃转储支持。WinUI 与托盘相关代码不依赖它们，
+    剔除后仍可正常启动（已用 snapshot / test-tray 两个自检模式回归验证）。
+  -->
+  <Target Name="TrimUnusedRuntime" AfterTargets="Publish">
+    <PropertyGroup>
+      <TrimRoot Condition="'$(PublishDir)' != ''">$(PublishDir)</TrimRoot>
+      <TrimRoot Condition="'$(TrimRoot)' == ''">$(OutDir)</TrimRoot>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <UnusedRuntime Include="$(TrimRoot)onnxruntime.dll" />
+      <UnusedRuntime Include="$(TrimRoot)onnxruntime_providers_shared.dll" />
+      <UnusedRuntime Include="$(TrimRoot)DirectML.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.ML.OnnxRuntime.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.Windows.AI.MachineLearning.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.Windows.Widgets.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.Windows.Widgets.Projection.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.Windows.Widgets.winmd" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.DiaSymReader.Native.amd64.dll" />
+      <UnusedRuntime Include="$(TrimRoot)mscordaccore.dll" />
+      <UnusedRuntime Include="$(TrimRoot)mscordaccore_amd64_amd64_*.dll" />
+      <UnusedRuntime Include="$(TrimRoot)mscordbi.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.Web.WebView2.Core.dll" />
+      <UnusedRuntime Include="$(TrimRoot)Microsoft.Web.WebView2.Core.Projection.dll" />
+      <UnusedRuntime Include="$(TrimRoot)WebView2Loader.dll" />
+    </ItemGroup>
+
+    <Message Importance="high" Text="TrimUnusedRuntime: $(TrimRoot) 剔除 @(UnusedRuntime->Count()) 个未使用组件" />
+    <Delete Files="@(UnusedRuntime)" ContinueOnError="true" />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.6584" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
