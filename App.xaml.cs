@@ -59,7 +59,7 @@ public partial class App : Application
             return;
         }
 
-        _runtime = new AppRuntime(DispatcherQueue.GetForCurrentThread());
+        _runtime = new AppRuntime(DispatcherQueue.GetForCurrentThread(), launchedAtStartup: Has("--tray"));
         _runtime.AttachTray();
 
         // --tray（开机自启路径）：完全不创建窗口，进程只跑托盘 + 巡检

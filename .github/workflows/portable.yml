@@ -1,0 +1,27 @@
+name: Portable Windows build
+on:
+  push:
+    branches: [main, fix/startup-login]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Startup registration and login regression tests
+        run: dotnet run --project tests/StartupTests -c Release
+      - name: Build portable archive
+        shell: pwsh
+        run: ./tools/build_portable.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SNNUAutoLogin-Portable-win-x64
+          path: |
+            artifacts/*.zip
+            artifacts/*.sha256

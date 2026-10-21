@@ -34,6 +34,7 @@ public sealed class LoginCoordinator : IDisposable
     private string? _idleReason;
     private int _pendingCheck;
     private TaskCompletionSource<object?>? _wake;
+    private bool _startupLoginPending;
 
     public ConnState State { get; private set; } = ConnState.Idle;
     public LoginResult? LastResult { get; private set; }
@@ -45,15 +46,19 @@ public sealed class LoginCoordinator : IDisposable
     public event Action<ConnState, LoginResult?>? StateChanged;
     public event Action<string>? Log;
 
-    public LoginCoordinator(CredentialStore store, DispatcherQueue dispatcher)
+    public LoginCoordinator(CredentialStore store, DispatcherQueue dispatcher, bool launchedAtStartup = false)
     {
         _store = store;
         _dispatcher = dispatcher;
+        _startupLoginPending = launchedAtStartup && store.Settings.AutoStart;
     }
 
-    /// <summary>自动认证的前提条件是否齐备（账号、密码、自动重连）。</summary>
+    private bool AutoLoginAllowed => _store.Settings.AutoReconnect
+        || (_startupLoginPending && _store.Settings.AutoStart);
+
+    /// <summary>开机认证成功前持续重试；成功后的掉线认证由自动重连开关控制。</summary>
     private bool AutoReady =>
-        _store.Settings.AutoReconnect
+        AutoLoginAllowed
         && !string.IsNullOrWhiteSpace(_store.Settings.Account)
         && _store.HasPassword;
 
@@ -196,6 +201,7 @@ public sealed class LoginCoordinator : IDisposable
 
             if (status.Success)
             {
+                _startupLoginPending = false;
                 NoteIdleReason(null);
                 SetState(ConnState.Online, status);
                 return (true, false);
@@ -215,7 +221,7 @@ public sealed class LoginCoordinator : IDisposable
             var account = _store.Settings.Account;
             var password = _store.LoadPassword();
 
-            if (_suppressAuto || !_store.Settings.AutoReconnect
+            if (_suppressAuto || !AutoLoginAllowed
                 || string.IsNullOrWhiteSpace(account) || string.IsNullOrEmpty(password))
             {
                 NoteIdleReason("idle");
@@ -230,6 +236,7 @@ public sealed class LoginCoordinator : IDisposable
             var r = await _client.LoginAsync(account, password, _store.Settings.Operator, ct).ConfigureAwait(false);
             if (r.Success)
             {
+                _startupLoginPending = false;
                 SetState(ConnState.Online, r);
                 LogLine($"登录成功 · {r.Account ?? account} · {r.Ip ?? "IP 未知"}");
                 return (true, false);
@@ -278,6 +285,7 @@ public sealed class LoginCoordinator : IDisposable
             var r = await _client.LoginAsync(account, password, _store.Settings.Operator).ConfigureAwait(false);
             if (r.Success)
             {
+                _startupLoginPending = false;
                 _failures = 0;
                 SetState(ConnState.Online, r);
                 LogLine(r.AlreadyOnline ? "当前已在线" : $"登录成功 · {r.Account ?? account} · {r.Ip ?? "IP 未知"}");

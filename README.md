@@ -48,6 +48,8 @@
 
 前往 [Releases](../../releases/latest) 下载最新安装包 `SNNUAutoLogin-Setup-1.2.0.exe`，双击按向导下一步即可（向导全中文）。
 
+便携版下载 `SNNUAutoLogin-Portable-1.2.1-win-x64.zip`，**完整解压到固定目录**后运行 `SNNUAutoLogin.exe`，无需安装运行时。不要只复制 exe；其余 DLL 和资源必须保留。移动目录后手动运行一次，程序会把开机启动项更新到新位置。凭据仍按下文保存在当前用户的 LocalAppData 中。
+
 | 项目 | 说明 |
 | --- | --- |
 | 安装位置 | 默认 `%LOCALAPPDATA%\Programs\SNNUAutoLogin`，**当前用户安装、不弹 UAC** |
@@ -98,6 +100,10 @@
 | 退出 | 真正结束进程 |
 
 开机自启写入 `"...\SNNUAutoLogin.exe" --tray`，开机不弹窗，直接静默驻留。
+
+开关变更立即写入当前用户的启动项，无需管理员权限；写入失败会记录日志并回退开关。首次运行会按保存的设置注册，目录移动或旧启动命令缺少 `--tray` 时会修复。Windows 登录用户后才会启动程序；若在任务管理器中禁用了此启动项，需要先手动重新启用。
+
+「开机自动登录」与「断线自动重连」分别控制：开机登录在网络就绪后完成一次认证（失败按退避策略重试）；认证成功后是否继续自动补登录由自动重连开关控制。账号和密码需先填写保存。
 
 ## 隐私与数据
 
@@ -151,6 +157,8 @@ dotnet build -c Debug -p:Platform=x64
 ```
 
 发布便携版（自包含）：
+
+运行 `powershell -ExecutionPolicy Bypass -File tools/build_portable.ps1` 会生成 `artifacts/SNNUAutoLogin-Portable-<版本>-win-x64.zip` 及 SHA256 校验文件。GitHub Actions 的 Portable Windows build 会运行注册表及登录回归检查并上传相同的便携包。也可以只发布目录：
 
 ```bat
 dotnet publish -c Release -r win-x64 -p:Platform=x64 --self-contained -o release
@@ -248,6 +256,13 @@ Portal 偶发要求验证码，本程序不做验证码识别。用浏览器手�
 Windows 会把不常用图标折叠进「^」溢出区，拖出来固定一下即可。
 
 ## 更新记录
+
+### 1.2.1
+
+- 修复首次运行未注册开机启动、便携版移动目录后误认旧路径、启动项缺少托盘参数的问题。
+- 主窗口与托盘共用启动项写入和失败回退逻辑，避免显示已开启但实际注册失败。
+- 开机自动登录不再依赖自动重连开关；网络未就绪或认证失败时继续退避重试。
+- 增加 Windows 回归测试与便携版 ZIP / SHA256 构建脚本。
 
 ### 1.2.0
 

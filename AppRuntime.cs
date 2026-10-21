@@ -50,17 +50,25 @@ public sealed class AppRuntime : IDisposable
     /// <summary>托盘菜单里改了配置（窗口若开着需要回读）。</summary>
     public event Action? SettingsChanged;
 
-    public AppRuntime(DispatcherQueue dispatcher)
+    public AppRuntime(DispatcherQueue dispatcher, bool launchedAtStartup = false)
     {
         Current = this;
         Dispatcher = dispatcher;
 
         Store.Load();
 
+        // 首次启动与便携目录移动后也要注册/修复；关闭时清除遗留项。
+        if (!StartupManager.SetEnabled(Store.Settings.AutoStart))
+        {
+            Store.Settings.AutoStart = StartupManager.IsEnabled();
+            Store.Save();
+            AddLog("开机自启设置失败，请检查当前用户的启动项权限");
+        }
+
         Theme = new ThemeColors(dispatcher);
         Theme.Changed += () => { };
 
-        Coordinator = new LoginCoordinator(Store, dispatcher);
+        Coordinator = new LoginCoordinator(Store, dispatcher, launchedAtStartup);
         Coordinator.StateChanged += OnStateChanged;
         Coordinator.Log += AddLog;
 
@@ -123,11 +131,7 @@ public sealed class AppRuntime : IDisposable
                 break;
 
             case TrayIcon.CmdToggleAutoStart:
-                Store.Settings.AutoStart = !Store.Settings.AutoStart;
-                StartupManager.SetEnabled(Store.Settings.AutoStart);
-                Store.Save();
-                SettingsChanged?.Invoke();
-                RefreshTray();
+                SetAutoStart(!Store.Settings.AutoStart);
                 break;
 
             case TrayIcon.CmdToggleReconnect:
@@ -148,6 +152,19 @@ public sealed class AppRuntime : IDisposable
                 Exit();
                 break;
         }
+    }
+
+    public void SetAutoStart(bool enabled)
+    {
+        if (StartupManager.SetEnabled(enabled))
+            AddLog(enabled ? "开机自启已注册" : "开机自启已关闭");
+        else
+            AddLog("开机自启设置失败，请检查当前用户的启动项权限");
+
+        Store.Settings.AutoStart = StartupManager.IsEnabled();
+        Store.Save();
+        SettingsChanged?.Invoke();
+        RefreshTray();
     }
 
     // ────────────────────────── 巡检 ──────────────────────────

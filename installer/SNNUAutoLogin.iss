@@ -9,8 +9,8 @@
 
 #define AppName        "陕师大校园网自动登录"
 #define AppNameEn      "SNNUAutoLogin"
-#define AppVer         "1.2.0"
-#define AppVerFull     "1.2.0.0"
+#define AppVer         "1.2.1"
+#define AppVerFull     "1.2.1.0"
 #define AppExe         "SNNUAutoLogin.exe"
 #define AppPublisher   "SNNU"
 #define AppURL         "https://www.snnu.edu.cn"

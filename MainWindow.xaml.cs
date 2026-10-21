@@ -408,6 +408,8 @@ public sealed partial class MainWindow : Window
 
     private void LoadSettingsToUi()
     {
+        bool ready = _uiReady;
+        _uiReady = false;
         var s = _rt.Store.Settings;
 
         AccountBox.Text = s.Account;
@@ -423,6 +425,7 @@ public sealed partial class MainWindow : Window
 
         _operator = s.Operator;
         SyncOperatorUi();
+        _uiReady = ready;
     }
 
     private void FillLogsFromRuntime()
@@ -448,7 +451,11 @@ public sealed partial class MainWindow : Window
         AccountBox.TextChanged += (_, _) => ScheduleSave();
         PwdBox.PasswordChanged += (_, _) => ScheduleSave();
 
-        AutoStartSwitch.Toggled += (_, _) => ScheduleSave();
+        AutoStartSwitch.Toggled += (_, _) =>
+        {
+            if (!_uiReady) return;
+            PersistToStore();
+        };
         AutoReconnectSwitch.Toggled += (_, _) => ScheduleSave();
         TraySwitch.Toggled += (_, _) =>
         {
@@ -736,17 +743,17 @@ public sealed partial class MainWindow : Window
         s.Account = AccountBox.Text.Trim();
         s.Operator = _operator;
         s.AutoReconnect = AutoReconnectSwitch.IsOn;
-        s.AutoStart = AutoStartSwitch.IsOn;
         s.MinimizeToTray = TraySwitch.IsOn;
 
         int idx = IntervalBox.SelectedIndex;
         s.CheckIntervalSeconds = (idx >= 0 && idx < Intervals.Length) ? Intervals[idx] : 8;
 
-        if (AutoStartSwitch.IsOn != StartupManager.IsEnabled())
-            StartupManager.SetEnabled(AutoStartSwitch.IsOn);
-
         _rt.Store.Save();
         _rt.Store.SavePassword(PwdBox.Password);
+
+        if (AutoStartSwitch.IsOn != s.AutoStart
+            || AutoStartSwitch.IsOn != StartupManager.IsEnabled())
+            _rt.SetAutoStart(AutoStartSwitch.IsOn);
 
         UpdateAutoPill();
         _rt.RefreshTray();
