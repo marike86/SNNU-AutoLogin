@@ -284,7 +284,7 @@ public sealed partial class MainWindow : Window
 
     private void HideToTray()
     {
-        if (_rt.Tray is null) return;
+        if (_rt.Tray?.IsVisible != true) return;
 
         _hiddenToTray = true;
         _saveTimer.Stop();
@@ -302,7 +302,7 @@ public sealed partial class MainWindow : Window
 
         if (_rt.Exiting) return false;
         if (!_rt.Store.Settings.MinimizeToTray) return false;
-        if (_rt.Tray is null) return false;
+        if (_rt.Tray?.IsVisible != true) return false;
 
         HideToTray();
         return true;
@@ -748,8 +748,10 @@ public sealed partial class MainWindow : Window
         int idx = IntervalBox.SelectedIndex;
         s.CheckIntervalSeconds = (idx >= 0 && idx < Intervals.Length) ? Intervals[idx] : 8;
 
-        _rt.Store.Save();
-        _rt.Store.SavePassword(PwdBox.Password);
+        bool settingsSaved = _rt.Store.Save();
+        bool passwordSaved = _rt.Store.SavePassword(PwdBox.Password);
+        if (!settingsSaved || !passwordSaved)
+            _rt.AddLog("账号或密码保存失败，重启后可能丢失，请检查本地配置目录的写入权限");
 
         if (AutoStartSwitch.IsOn != s.AutoStart
             || AutoStartSwitch.IsOn != StartupManager.IsEnabled())

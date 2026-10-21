@@ -46,7 +46,7 @@
 
 ## 下载与安装
 
-前往 [Releases](../../releases/latest) 下载最新安装包 `SNNUAutoLogin-Setup-1.2.0.exe`，双击按向导下一步即可（向导全中文）。
+前往 [Releases](../../releases/latest) 下载最新安装包 `SNNUAutoLogin-Setup-1.2.1.exe`，双击按向导下一步即可（向导全中文）。
 
 便携版下载 `SNNUAutoLogin-Portable-1.2.1-win-x64.zip`，**完整解压到固定目录**后运行 `SNNUAutoLogin.exe`，无需安装运行时。不要只复制 exe；其余 DLL 和资源必须保留。移动目录后手动运行一次，程序会把开机启动项更新到新位置。凭据仍按下文保存在当前用户的 LocalAppData 中。
 
@@ -158,7 +158,7 @@ dotnet build -c Debug -p:Platform=x64
 
 发布便携版（自包含）：
 
-运行 `powershell -ExecutionPolicy Bypass -File tools/build_portable.ps1` 会生成 `artifacts/SNNUAutoLogin-Portable-<版本>-win-x64.zip` 及 SHA256 校验文件。GitHub Actions 的 Portable Windows build 会运行注册表及登录回归检查并上传相同的便携包。也可以只发布目录：
+运行 `powershell -File tools/build_portable.ps1` 会生成 `artifacts/SNNUAutoLogin-Portable-<版本>-win-x64.zip` 及 SHA256 校验文件。安装 Inno Setup 6 后运行 `powershell -File tools/build_release.ps1`，会用同一份自包含发布目录同时生成安装版 EXE、便携版 ZIP 和 `SHA256SUMS.txt`。GitHub Actions 的 Windows release build 会运行启动项、登录及凭据回归检查，验证安装、启动、卸载，再上传两种包。也可以只发布目录：
 
 ```bat
 dotnet publish -c Release -r win-x64 -p:Platform=x64 --self-contained -o release
@@ -263,6 +263,9 @@ Windows 会把不常用图标折叠进「^」溢出区，拖出来固定一下�
 - 主窗口与托盘共用启动项写入和失败回退逻辑，避免显示已开启但实际注册失败。
 - 开机自动登录不再依赖自动重连开关；网络未就绪或认证失败时继续退避重试。
 - 增加 Windows 回归测试与便携版 ZIP / SHA256 构建脚本。
+- 修复凭据保存失败后不重试的问题；写入失败显示日志，设置与密码改为临时文件写完后再替换，避免直接截断原文件。
+- 对无效账号、出口枚举和巡检间隔配置做恢复处理；托盘注册失败时保留可访问窗口，重复后台启动不唤出主窗口。
+- 安装版与便携版从同一目录构建，CI 验证安装、启动与卸载；安装升级也会修复同路径但缺少 `--tray` 的启动命令。
 
 ### 1.2.0
 

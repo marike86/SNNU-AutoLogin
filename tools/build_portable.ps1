@@ -1,4 +1,7 @@
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot '..\artifacts'))
+param(
+    [string]$OutputDirectory = (Join-Path $PSScriptRoot '..\artifacts'),
+    [switch]$PassThru
+)
 $ErrorActionPreference = 'Stop'
 $project = Join-Path $PSScriptRoot '..\SNNUAutoLogin.csproj'
 [xml]$projectXml = Get-Content -LiteralPath $project
@@ -9,12 +12,15 @@ $destination = [IO.Path]::GetFullPath($OutputDirectory)
 $staging = Join-Path $destination ("staging-" + [Guid]::NewGuid().ToString('N'))
 $publish = Join-Path $staging $name
 New-Item -ItemType Directory -Path $publish -Force | Out-Null
-dotnet publish $project -c Release -r win-x64 -p:Platform=x64 --self-contained -o $publish
+dotnet publish $project -c Release -r win-x64 -p:Platform=x64 --self-contained -o $publish | Out-Host
 if ($LASTEXITCODE -ne 0) { throw 'Portable publish failed' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot '..\README.md') -Destination $publish
 $archive = Join-Path $destination "$name.zip"
 Compress-Archive -LiteralPath $publish -DestinationPath $archive -Force
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText("$archive.sha256", "$hash  $name.zip`n")
-Write-Output "Portable archive: $archive"
-Write-Output "SHA256: $hash"
+Write-Host "Portable archive: $archive"
+Write-Host "SHA256: $hash"
+if ($PassThru) {
+    [pscustomobject]@{ PublishDirectory = $publish; Archive = $archive; Version = $version }
+}

@@ -80,6 +80,8 @@ public sealed class TrayIcon : IDisposable
     private bool _added;
     private bool _disposed;
 
+    public bool IsVisible => _added && !_disposed;
+
     public event Action? ShowRequested;
     public event Action? CommandInvoked;
 
