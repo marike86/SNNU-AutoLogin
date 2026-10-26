@@ -1,0 +1,34 @@
+#pragma code_page(65001)
+
+1 ICON "icon.ico"
+1 24 "app.manifest"
+
+1 VERSIONINFO
+FILEVERSION     @VERSION_COMMA@
+PRODUCTVERSION  @VERSION_COMMA@
+FILEFLAGSMASK   0x3fL
+FILEFLAGS       0x0L
+FILEOS          0x40004L
+FILETYPE        0x1L
+FILESUBTYPE     0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "CompanyName",      "SNNU-AutoLogin contributors"
+            VALUE "FileDescription",  "SNNU Campus Network Auto Login"
+            VALUE "FileVersion",      "@VERSION_DOT@"
+            VALUE "InternalName",     "snnulogin"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 SNNU-AutoLogin contributors"
+            VALUE "OriginalFilename", "snnulogin.exe"
+            VALUE "ProductName",      "SNNU AutoLogin"
+            VALUE "ProductVersion",   "@VERSION_DOT@"
+            VALUE "Comments",         "Community campus network client"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

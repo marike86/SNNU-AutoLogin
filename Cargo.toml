@@ -1,0 +1,51 @@
+[package]
+name = "snnulogin"
+build = "build.rs"
+version = "1.0.0"
+edition = "2021"
+description = "陕师大校园网自动登录工具，提供原生 Windows 界面与后台重连"
+license = "MIT"
+readme = "README.md"
+publish = false
+
+# 唯一主程序：原生 Win32 界面
+[[bin]]
+name = "snnulogin"
+path = "src/win32_main.rs"
+
+[dependencies]
+# 只访问校园网 HTTP 门户，不需要 TLS
+ureq = { version = "2", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+encoding_rs = "0.8"
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Security_Cryptography",
+  "Win32_System_Registry",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Shell",
+  "Win32_UI_Controls",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_Graphics_Gdi",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_System_Console",
+  "Win32_System_SystemInformation",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_WiFi",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Networking_WinSock",
+  "Win32_System_IO",
+  "Win32_System_Com",
+  "Win32_Storage_FileSystem",
+] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true

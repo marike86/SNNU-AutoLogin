@@ -1,0 +1,143 @@
+//! 只读取 Windows 当前连接，不扫描热点、不改变网卡或系统权限。
+use windows::Win32::Foundation::HANDLE;
+use windows::Win32::NetworkManagement::IpHelper::*;
+use windows::Win32::NetworkManagement::Ndis::IfOperStatusUp;
+use windows::Win32::NetworkManagement::WiFi::*;
+
+pub fn current_name() -> String {
+    unsafe {
+        let mut size = 16_384u32;
+        for _ in 0..3 {
+            // IP_ADAPTER_ADDRESSES 需要指针对齐，不能直接把 Vec<u8> 强转。
+            let mut buffer = vec![0u64; (size as usize + 7) / 8];
+            let first = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+            let result =
+                GetAdaptersAddresses(0, GAA_FLAG_INCLUDE_GATEWAYS, None, Some(first), &mut size);
+            if result == 111 {
+                continue;
+            } // ERROR_BUFFER_OVERFLOW
+            if result != 0 {
+                break;
+            }
+            let mut best = 0;
+            let _ = GetBestInterface(u32::from_ne_bytes([202, 117, 144, 205]), &mut best);
+            let mut entry = first;
+            let mut wired = false;
+            let mut wifi = false;
+            while !entry.is_null() {
+                let adapter = &*entry;
+                if adapter.OperStatus == IfOperStatusUp && !adapter.FirstUnicastAddress.is_null() {
+                    if adapter.IfType == IF_TYPE_ETHERNET_CSMACD
+                        && !adapter.FirstGatewayAddress.is_null()
+                    {
+                        wired = true;
+                        if adapter.Anonymous1.Anonymous.IfIndex == best {
+                            return "有线网络".into();
+                        }
+                    }
+                    if adapter.IfType == IF_TYPE_IEEE80211 {
+                        wifi = true;
+                    }
+                }
+                entry = adapter.Next;
+            }
+            if let Some(ssid) = current_ssid() {
+                return ssid;
+            }
+            if wifi {
+                return "Wi-Fi · 名称暂不可读".into();
+            }
+            if wired {
+                return "有线网络".into();
+            }
+            return "尚未连接网络".into();
+        }
+        current_ssid().unwrap_or_else(|| "当前网络".into())
+    }
+}
+
+unsafe fn current_ssid() -> Option<String> {
+    let mut version = 0;
+    let mut handle = HANDLE::default();
+    if WlanOpenHandle(2, None, &mut version, &mut handle) != 0 {
+        return None;
+    }
+    let mut list = std::ptr::null_mut();
+    let mut name = None;
+    if WlanEnumInterfaces(handle, None, &mut list) == 0 && !list.is_null() {
+        let interfaces = std::slice::from_raw_parts(
+            (*list).InterfaceInfo.as_ptr(),
+            (*list).dwNumberOfItems as usize,
+        );
+        for interface in interfaces {
+            if interface.isState != wlan_interface_state_connected {
+                continue;
+            }
+            let mut size = 0;
+            let mut data = std::ptr::null_mut();
+            if WlanQueryInterface(
+                handle,
+                &interface.InterfaceGuid,
+                wlan_intf_opcode_current_connection,
+                None,
+                &mut size,
+                &mut data,
+                None,
+            ) == 0
+                && !data.is_null()
+            {
+                if size as usize >= std::mem::size_of::<WLAN_CONNECTION_ATTRIBUTES>() {
+                    let attrs = &*(data as *const WLAN_CONNECTION_ATTRIBUTES);
+                    let ssid = &attrs.wlanAssociationAttributes.dot11Ssid;
+                    name = decode_ssid(&ssid.ucSSID, ssid.uSSIDLength as usize);
+                }
+                WlanFreeMemory(data);
+            }
+            if name.is_some() {
+                break;
+            }
+        }
+        WlanFreeMemory(list as _);
+    }
+    let _ = WlanCloseHandle(handle, None);
+    name
+}
+
+fn decode_ssid(bytes: &[u8], len: usize) -> Option<String> {
+    let bytes = bytes.get(..len)?;
+    if bytes.is_empty() {
+        return None;
+    }
+    let decoded = match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(_) => encoding_rs::GB18030.decode(bytes).0.to_string(),
+    };
+    let name: String = decoded
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if name.trim().is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn ssid_uses_actual_length_and_preserves_unicode() {
+        assert_eq!(
+            decode_ssid(b"SNNU-Student\0\0", 12).as_deref(),
+            Some("SNNU-Student")
+        );
+        let name = "师大无线";
+        assert_eq!(
+            decode_ssid(name.as_bytes(), name.len()).as_deref(),
+            Some(name)
+        );
+        assert_eq!(decode_ssid(&[1, 2], 33), None);
+        assert_eq!(decode_ssid(&[], 0), None);
+    }
+}

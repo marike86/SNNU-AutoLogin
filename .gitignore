@@ -1,0 +1,29 @@
+# Build and release output
+/target/
+/dist/
+/*.exe
+
+# Local editor and assistant data
+/.workbuddy/
+/.codex/
+/.idea/
+/.vscode/
+*.swp
+*.swo
+
+# Local credentials, logs, reports and backups
+.env
+.env.*
+config.json
+state.json
+*.log
+*.log.*
+*.bak
+*.tmp
+SNNU诊断报告-*.txt
+Thumbs.db
+Desktop.ini
+
+# Private screenshot originals
+/.local/
+/[0-9]*.png
