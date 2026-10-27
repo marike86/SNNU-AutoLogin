@@ -47,7 +47,9 @@ fn tip_buf() -> &'static Mutex<Vec<u16>> {
     TIP.get_or_init(|| Mutex::new(wide("校园网自动登录")))
 }
 
-fn app_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
+// MAKEINTRESOURCEW encodes resource ID 1 as a pointer; it is never dereferenced.
+#[allow(clippy::manual_dangling_ptr)]
+pub(crate) fn app_icon() -> windows::Win32::UI::WindowsAndMessaging::HICON {
     unsafe {
         let hinst = GetModuleHandleW(PCWSTR::null()).unwrap_or_default();
         // 资源 1 就是 app.rc 里嵌入的蓝色 WiFi 图标

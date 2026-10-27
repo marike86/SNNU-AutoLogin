@@ -8,6 +8,7 @@
 
 <p>
   <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/releases/tag/v1.0.1"><img src="https://img.shields.io/badge/Windows-v1.0.1-2563eb?style=flat-square" alt="Windows v1.0.1"></a>
+  <a href="docs/macos.md"><img src="https://img.shields.io/badge/macOS-13%2B-475569?style=flat-square" alt="macOS 13 及以上"></a>
   <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/releases/tag/android-v1.0.0"><img src="https://img.shields.io/badge/Android-v1.0.0-16a34a?style=flat-square" alt="Android v1.0.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-64748b?style=flat-square" alt="MIT License"></a>
 </p>
@@ -27,15 +28,16 @@
 | 平台 | 系统要求 | 下载 |
 | :--- | :--- | :--- |
 | **Windows** | Windows 10 / 11，x64 | [免安装版 ZIP](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/v1.0.1/SNNU-AutoLogin-v1.0.1-windows-x64.zip) · [单文件 EXE](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/v1.0.1/SNNU-AutoLogin.exe) |
+| **macOS** | macOS 13 及以上，Apple Silicon / Intel | [安装与构建说明](docs/macos.md) |
 | **Android** | Android 8.0 及以上 | [安装包 APK](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/android-v1.0.0/SNNU-AutoLogin-android.apk) |
 
 Windows 约 **1 MB**，Android 安装包不到 **60 KB**。[查看更新记录 →](https://github.com/shixiang-liu/SNNU-AutoLogin/releases)
 
 ## 界面预览
 
-| Windows | Android |
-| :---: | :---: |
-| <img src="docs/screenshots/home.png" width="320" alt="Windows 首页：连接状态与当前账号"> | <img src="docs/images/android/home.png" width="240" alt="Android 首页：连接状态与当前账号"> |
+| Windows | macOS | Android |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/home.png" width="280" alt="Windows 首页：连接状态与当前账号"> | <img src="docs/images/macos/home.png" width="280" alt="macOS 原生首页：模拟会话截图"> | <img src="docs/images/android/home.png" width="200" alt="Android 首页：连接状态与当前账号"> |
 
 [Windows 设置预览](docs/screenshots/settings.png) · [更多 Android 界面](android/README.md#界面预览)
 
@@ -58,6 +60,7 @@ Android 首次使用可按提示允许通知；需要锁屏后持续运行时，
 
 | 我想…… | 去这里 |
 | :--- | :--- |
+| 了解 macOS 安装、权限与菜单栏操作 | [macOS 使用说明](docs/macos.md) |
 | 了解 Android 操作与后台设置 | [Android 使用指南](android/README.md) |
 | 从源码构建或参与开发 | [构建说明](docs/building.md) |
 | 查看 Android 测试与性能记录 | [验证记录](android/VALIDATION.md) |

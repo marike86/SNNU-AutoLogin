@@ -22,7 +22,7 @@ if ($Release) {
 # Gradle and javac write routine warnings to stderr; they must not abort packaging.
 $previous = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
-try { & (Join-Path $androidRoot 'gradlew.bat') -p $androidRoot @tasks --console=plain --no-daemon 2>$null } finally { $ErrorActionPreference = $previous }
+try { & (Join-Path $androidRoot 'gradlew.bat') -p $androidRoot @tasks --console=plain --no-daemon } finally { $ErrorActionPreference = $previous }
 if ($LASTEXITCODE -ne 0) { throw 'Android checks or build failed' }
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 $testApk = Join-Path $androidRoot 'app/build/outputs/apk/benchmark/app-benchmark.apk'

@@ -1,4 +1,5 @@
 //! 托盘事件与菜单规则，不在打开菜单时执行网络请求。
+#[cfg(windows)]
 use windows::Win32::UI::{
     Shell::{
         NIN_BALLOONHIDE, NIN_BALLOONSHOW, NIN_BALLOONTIMEOUT, NIN_BALLOONUSERCLICK, NIN_SELECT,
@@ -6,6 +7,7 @@ use windows::Win32::UI::{
     WindowsAndMessaging::{WM_CONTEXTMENU, WM_LBUTTONUP, WM_RBUTTONUP},
 };
 // SDK 宏 NIN_SELECT | NINF_KEY，windows 0.58 未导出该组合宏。
+#[cfg(windows)]
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -17,6 +19,7 @@ pub enum Event {
     Ignore,
 }
 
+#[cfg(windows)]
 pub fn event(modern: bool, wp: usize, lp: u32, icon: u32) -> Event {
     if (modern && lp >> 16 != icon) || (!modern && wp != icon as usize) {
         return Event::Ignore;
@@ -157,6 +160,7 @@ pub fn menu(c: &Context) -> Vec<Entry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONDBLCLK;
     fn online() -> Context {
         Context {
@@ -179,6 +183,7 @@ mod tests {
             _ => None,
         })
     }
+    #[cfg(windows)]
     #[test]
     fn modern_single_click_and_keyboard_open_without_mouse_event_duplicates() {
         let pack = |event| (1 << 16) | event;
@@ -191,6 +196,7 @@ mod tests {
         assert_eq!(event(true, 0, pack(WM_RBUTTONUP), 1), Event::Ignore);
         assert_eq!(event(true, 0, (2 << 16) | NIN_SELECT, 1), Event::Ignore);
     }
+    #[cfg(windows)]
     #[test]
     fn legacy_callbacks_keep_single_click_fallback() {
         assert_eq!(event(false, 1, WM_LBUTTONUP, 1), Event::Open);
@@ -223,10 +229,10 @@ mod tests {
         c.link = Link::Offline;
         c.busy = true;
         for id in [Command::Automatic, Command::Retry, Command::Disconnect] {
-            assert_eq!(action(&c, id).unwrap().0, false);
+            assert!(!action(&c, id).unwrap().0);
         }
         for id in [Command::Open, Command::Settings, Command::Quit] {
-            assert_eq!(action(&c, id).unwrap().0, true);
+            assert!(action(&c, id).unwrap().0);
         }
         assert_eq!(status(&c), "正在处理…");
     }

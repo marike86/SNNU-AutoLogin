@@ -6,8 +6,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
 use windows::core::PCWSTR;
+#[cfg(windows)]
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
+#[cfg(windows)]
 use windows::Win32::Security::Cryptography::{
     CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
 };
@@ -67,8 +70,14 @@ pub struct State {
 }
 
 pub fn app_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    return crate::macos::storage::app_dir();
+    #[cfg(windows)]
     let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
-    PathBuf::from(base).join(APP_NAME)
+    #[cfg(windows)]
+    {
+        PathBuf::from(base).join(APP_NAME)
+    }
 }
 
 pub fn cfg_path() -> PathBuf {
@@ -81,6 +90,7 @@ pub fn log_path() -> PathBuf {
     app_dir().join("login.log")
 }
 
+#[cfg(windows)]
 fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
     CRYPT_INTEGER_BLOB {
         cbData: data.len() as u32,
@@ -90,22 +100,16 @@ fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
 
 /// 附加应用标识；保密性来自 DPAPI 用户保护，固定熵不等于额外秘密。
 /// 这是固定的数据格式标识，与产品版本无关，变更会导致已有密码无法解密。
+#[cfg(windows)]
 const ENTROPY: &[u8] = b"SNNU-AutoLogin/v4";
 
+#[cfg(windows)]
 pub fn encrypt(plain: &str) -> String {
     unsafe {
-        let mut input = blob(plain.as_bytes());
-        let mut ent = blob(ENTROPY);
+        let input = blob(plain.as_bytes());
+        let ent = blob(ENTROPY);
         let mut out = CRYPT_INTEGER_BLOB::default();
-        let r = CryptProtectData(
-            &mut input,
-            PCWSTR::null(),
-            Some(&mut ent),
-            None,
-            None,
-            0,
-            &mut out,
-        );
+        let r = CryptProtectData(&input, PCWSTR::null(), Some(&ent), None, None, 0, &mut out);
         if r.is_err() {
             return String::new();
         }
@@ -116,18 +120,18 @@ pub fn encrypt(plain: &str) -> String {
     }
 }
 
+#[cfg(windows)]
 pub fn decrypt(token: &str) -> String {
     let raw = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, token) {
         Ok(v) => v,
         Err(_) => return String::new(),
     };
     unsafe {
-        let mut input = blob(&raw);
+        let input = blob(&raw);
         let mut out = CRYPT_INTEGER_BLOB::default();
-        let mut ent = blob(ENTROPY);
-        let ok = CryptUnprotectData(&mut input, None, Some(&mut ent), None, None, 0, &mut out)
-            .is_ok()
-            || CryptUnprotectData(&mut input, None, None, None, None, 0, &mut out).is_ok();
+        let ent = blob(ENTROPY);
+        let ok = CryptUnprotectData(&input, None, Some(&ent), None, None, 0, &mut out).is_ok()
+            || CryptUnprotectData(&input, None, None, None, None, 0, &mut out).is_ok();
         if !ok {
             return String::new();
         }
@@ -142,7 +146,7 @@ pub fn decrypt(token: &str) -> String {
     }
 }
 
-fn atomic_write(path: &Path, data: &str) -> std::io::Result<()> {
+pub(crate) fn atomic_write(path: &Path, data: &str) -> std::io::Result<()> {
     use std::io::Write;
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     if let Some(dir) = path.parent() {
@@ -169,6 +173,7 @@ fn atomic_write(path: &Path, data: &str) -> std::io::Result<()> {
     result
 }
 
+#[cfg(windows)]
 pub fn load_config() -> (Config, String) {
     let raw = fs::read_to_string(cfg_path()).unwrap_or_default();
     let mut cfg: Config = serde_json::from_str(&raw).unwrap_or_default();
@@ -181,6 +186,7 @@ pub fn load_config() -> (Config, String) {
     (cfg, pwd)
 }
 
+#[cfg(windows)]
 pub fn save_config(cfg: &Config, password: &str) -> std::io::Result<()> {
     let mut c = cfg.clone();
     c.password_enc = encrypt(password);
@@ -257,7 +263,9 @@ pub fn stamp_compact() -> String {
     )
 }
 
+#[cfg(windows)]
 fn local_time() -> windows::Win32::Foundation::SYSTEMTIME {
+    #[cfg(windows)]
     use windows::Win32::System::SystemInformation::GetLocalTime;
     unsafe { GetLocalTime() }
 }
@@ -277,6 +285,7 @@ mod tests {
         dir.join("state.json")
     }
 
+    #[cfg(windows)]
     #[test]
     fn fresh_profile_child() {
         let Some(profile) = std::env::var_os("SNNU_TEST_FRESH_PROFILE") else {
@@ -294,6 +303,7 @@ mod tests {
         assert!(!app_dir().exists());
     }
 
+    #[cfg(windows)]
     #[test]
     fn fresh_profile_has_no_saved_account_password_or_history() {
         let path = sandbox();
@@ -357,6 +367,8 @@ mod tests {
         assert_eq!(state.portal_host, "fixture.invalid");
         assert!(state.reconnect_paused);
         fs::remove_file(&path).unwrap();
+        #[cfg(target_os = "macos")]
+        fs::remove_file(path.with_extension("lock")).unwrap();
         fs::remove_dir(path.parent().unwrap()).unwrap();
     }
 
@@ -367,6 +379,8 @@ mod tests {
         assert!(update_state_at(&path, |s| s.net_bad = 9).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "broken JSON");
         fs::remove_file(&path).unwrap();
+        #[cfg(target_os = "macos")]
+        fs::remove_file(path.with_extension("lock")).unwrap();
         fs::remove_dir(path.parent().unwrap()).unwrap();
     }
 
@@ -400,12 +414,11 @@ mod tests {
         assert_eq!(cfg.keepalive_min, 15);
         assert!(cfg.account.is_empty());
     }
+}
 
-    #[test]
-    fn 保活间隔下限保护() {
-        // 保活间隔至少为 5 分钟。
-        assert_eq!(0u64.max(5), 5);
-        assert_eq!(1u64.max(5), 5);
-        assert_eq!(30u64.max(5), 30);
-    }
+#[cfg(target_os = "macos")]
+pub use crate::macos::storage::{load_config, save_config};
+#[cfg(target_os = "macos")]
+fn local_time() -> crate::macos::LocalTime {
+    crate::macos::local_time()
 }

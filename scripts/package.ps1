@@ -8,9 +8,9 @@ Push-Location $projectRoot
 $stage = $null
 $previousEncodedFlags = [Environment]::GetEnvironmentVariable('CARGO_ENCODED_RUSTFLAGS')
 try {
-    $cargoFlags = @('--locked')
+    $cargoFlags = @('--locked', '--target', 'x86_64-pc-windows-msvc')
     if ($Offline) { $cargoFlags += '--offline' }
-    $metadata = & cargo metadata --no-deps --format-version 1 @cargoFlags
+    $metadata = & cargo metadata --no-deps --format-version 1 --locked
     if ($LASTEXITCODE -ne 0) { throw '无法读取 Cargo 项目信息' }
     $package = ($metadata | ConvertFrom-Json).packages | Where-Object { $_.name -eq 'snnulogin' }
     $version = $package.version

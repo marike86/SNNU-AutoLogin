@@ -10,6 +10,8 @@
 /.vscode/
 *.swp
 *.swo
+__pycache__/
+*.py[cod]
 
 # Local credentials, logs, reports and backups
 .env
