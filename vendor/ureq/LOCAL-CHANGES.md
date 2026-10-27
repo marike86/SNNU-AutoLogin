@@ -1,0 +1,1 @@
+Based on upstream ureq 2.12.1 (MIT OR Apache-2.0). This local patch only adds an optional per-Agent TCP connector. HTTP parsing, cookies, redirect handling and default connections are unchanged. The application uses it on Windows to bind campus requests to the physical network without changing system routes or proxy settings.

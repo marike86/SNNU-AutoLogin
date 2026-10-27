@@ -22,8 +22,35 @@ pub fn host() -> String {
     HOST.to_string()
 }
 
+// All campus requests share the same physical route, including login and logout.
+fn request_builder() -> ureq::AgentBuilder {
+    let builder = ureq::AgentBuilder::new();
+    #[cfg(windows)]
+    let builder = builder
+        .try_proxy_from_env(false)
+        .tcp_connector(crate::network::connect_portal);
+    builder
+}
+
+#[cfg(all(test, windows))]
+#[test]
+#[ignore = "Requires a real authenticated campus Wi-Fi; GET only, never submits credentials"]
+fn campus_read_only_status_through_physical_adapter() {
+    let observed = status_at(HOST, 8609, Duration::from_secs(5));
+    let classification = match &observed {
+        Some(Status::Online(_)) => "online",
+        Some(Status::Offline) => "offline",
+        _ => "unreachable",
+    };
+    println!("Read-only physical-network portal classification: {classification}");
+    assert!(
+        matches!(observed, Some(Status::Online(_))),
+        "Expected the already authenticated session; no login/logout performed"
+    );
+}
+
 fn redirect_target(url: &str, timeout: Duration) -> Option<(String, u16)> {
-    let resp = ureq::AgentBuilder::new()
+    let resp = request_builder()
         .redirects(0)
         .build()
         .get(url)
@@ -95,7 +122,9 @@ fn decode(bytes: &[u8]) -> String {
 }
 
 fn fetch(url: &str, secs: u64) -> Result<String, String> {
-    let resp = ureq::get(url)
+    let resp = request_builder()
+        .build()
+        .get(url)
         .set("User-Agent", UA)
         .set("Accept-Language", "zh-CN,zh;q=0.9")
         .timeout(Duration::from_secs(secs))
@@ -349,7 +378,7 @@ fn status_at(h: &str, port: u16, timeout: Duration) -> Option<Status> {
 
 fn fetch_status_page(h: &str, port: u16, timeout: Duration) -> Option<String> {
     let deadline = std::time::Instant::now() + timeout;
-    let agent = ureq::AgentBuilder::new().redirects(0).build();
+    let agent = request_builder().redirects(0).build();
     let base = format!("http://{}:{}", h, port);
     let mut url = format!("{}/snnuportal/userstatus.jsp", base);
     for _ in 0..4 {
@@ -724,7 +753,9 @@ fn login_unlocked(account: &str, password: &str, operator: &str, port: u16) -> R
     for attempt in 0..attempts {
         let (session_cookie, _body) = open_login_page(port, "");
         std::thread::sleep(Duration::from_millis(120));
-        let mut req = ureq::post(&format!("{}/login", base))
+        let mut req = request_builder()
+            .build()
+            .post(&format!("{}/login", base))
             .set("User-Agent", UA)
             .set("Content-Type", "application/x-www-form-urlencoded")
             .set("Referer", &format!("{}/login.jsp", base))
@@ -832,7 +863,9 @@ fn open_login_page(port: u16, cookie: &str) -> (String, String) {
         port,
         unix_now()
     );
-    let mut req = ureq::get(&url)
+    let mut req = request_builder()
+        .build()
+        .get(&url)
         .set("User-Agent", UA)
         .set("Accept", "text/html,application/xhtml+xml")
         .set("Accept-Language", "zh-CN,zh;q=0.9")
@@ -901,6 +934,8 @@ pub fn internet_ok() -> bool {
 
 fn internet_probe(url: &str, expected_code: u16, expected_body: &str) -> bool {
     use std::io::Read;
+    // Keep public DNS/proxy routing together: a TUN DNS may return synthetic IPs
+    // which cannot be reached by a socket bound to a physical adapter.
     let Ok(response) = ureq::AgentBuilder::new()
         .redirects(0)
         .build()

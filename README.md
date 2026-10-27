@@ -4,14 +4,14 @@
 
 面向陕西师范大学校园网的 Windows 小工具，提供自动登录、掉线重连和托盘运行。Rust + 原生 Win32 界面，免安装，双击即可运行
 
-**1.0.0 首次发布 · Windows 10 / 11 x64 · MIT 开源**
+**v1.0.1 · Windows 10 / 11 x64 · MIT 开源**
 
 [下载最新版](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/latest) · [反馈问题](https://github.com/shixiang-liu/SNNU-AutoLogin/issues)
 
 ## 轻巧，日常少操心
 
-- **约 1 MB 的单文件程序**：EXE 为 1,029,632 字节，约 0.98 MiB
-- **后台占用低**：本机已连接、关闭界面时，工作集约 14 MiB，私有内存约 2.6 MiB
+- **约 1 MB 的单文件程序**：EXE 为 1,025,536 字节，约 0.98 MiB
+- **后台占用低**：v1.0.0 在本机已连接、关闭界面时，工作集约 14 MiB，私有内存约 2.6 MiB；本版尚未重新测量
 - **免安装绿色版**：解压运行，不需要管理员权限，不安装服务或驱动
 - **无需额外运行库**：VC++ 运行库静态链接，不依赖 Electron、WebView2、Java 或 .NET
 - **默认在本机处理账号**：密码使用 Windows DPAPI 加密保存，发布文件不包含预设账号
@@ -108,7 +108,7 @@ cargo test --release --locked
 
 打包脚本会执行格式检查、回归测试和发布构建，并生成：
 
-- `dist/SNNU-AutoLogin-v1.0.0-windows-x64.zip`：程序、README 使用说明和许可证
+- `dist/SNNU-AutoLogin-v1.0.1-windows-x64.zip`：程序、README 使用说明和许可证
 - `dist/SNNU-AutoLogin.exe`：独立可执行文件
 - `dist/SHA256SUMS.txt`：文件校验值
 
@@ -160,3 +160,7 @@ cargo run -- --preview features --preview-dpi 192
 [MIT License](LICENSE)
 
 本项目是社区工具，与学校官方客户端无隶属关系
+
+## v1.0.1 更新
+
+修复开启 FlClash 等虚拟网卡后，校园网已经登录却显示“等待校园网”的问题。认证请求自动绑定当前物理网络，未开启代理时同样使用；不修改系统代理或路由。账号配置继续保留。详细测试与多网卡边界见 [验证记录](docs/windows-network-fix-validation.md)。
