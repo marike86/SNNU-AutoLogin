@@ -1,0 +1,61 @@
+plugins { id 'com.android.application' }
+
+def signingEnvironment = ['SNNU_KEYSTORE', 'SNNU_STORE_PASSWORD', 'SNNU_KEY_ALIAS', 'SNNU_KEY_PASSWORD']
+def suppliedSigning = signingEnvironment.count { System.getenv(it) }
+if (suppliedSigning != 0 && suppliedSigning != signingEnvironment.size()) {
+    throw new GradleException('Provide all four SNNU signing environment variables, or none.')
+}
+
+android {
+    namespace 'io.github.shixiangliu.snnulogin'
+    compileSdk { version = release(37) }
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'io.github.shixiangliu.snnulogin'
+        minSdk 26
+        targetSdk 37
+        // 1 is already used by local test builds; keep versionCode monotonic so updates install over them.
+        versionCode 7
+        versionName '1.0.0'
+        testInstrumentationRunner 'io.github.shixiangliu.snnulogin.SmokeInstrumentation'
+    }
+    signingConfigs {
+        if (suppliedSigning == signingEnvironment.size()) {
+            release {
+                storeFile file(System.getenv('SNNU_KEYSTORE'))
+                storePassword System.getenv('SNNU_STORE_PASSWORD')
+                keyAlias System.getenv('SNNU_KEY_ALIAS')
+                keyPassword System.getenv('SNNU_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-test'
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (suppliedSigning == signingEnvironment.size()) signingConfig signingConfigs.release
+        }
+        // Optimized, installable measurement build; never uses the release signing identity.
+        benchmark {
+            initWith release
+            applicationIdSuffix '.benchmark'
+            versionNameSuffix '-test'
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures { buildConfig true }
+    lint { abortOnError true; checkReleaseBuilds true }
+    testOptions { unitTests.returnDefaultValues = false }
+}
+
+dependencies { testImplementation 'junit:junit:4.13.2' }

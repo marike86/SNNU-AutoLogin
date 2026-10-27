@@ -27,3 +27,12 @@ Desktop.ini
 # Private screenshot originals
 /.local/
 /[0-9]*.png
+
+# Android build tools, outputs and signing material
+**/.gradle/
+**/build/
+/android/local.properties
+/android/.idea/
+*.jks
+*.keystore
+/android/signing.properties
