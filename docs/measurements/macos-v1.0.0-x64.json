@@ -1,0 +1,44 @@
+{
+  "architecture": "x86_64",
+  "macos": "15.7.9",
+  "app_bytes": 1313239,
+  "startup_smoke_ms": 600.6,
+  "measurements": [
+    {
+      "scenario": "online-window",
+      "startup_ms": 402.9,
+      "rss_mib": 38.05,
+      "footprint_mib": 9.75,
+      "cpu_percent_one_core": 1.604,
+      "threads": 7
+    },
+    {
+      "scenario": "online-background",
+      "startup_ms": 527.2,
+      "rss_mib": 37.26,
+      "footprint_mib": 9.7,
+      "cpu_percent_one_core": 0.306,
+      "threads": 7
+    },
+    {
+      "scenario": "waiting-background",
+      "startup_ms": 641.4,
+      "rss_mib": 38.3,
+      "footprint_mib": 9.76,
+      "cpu_percent_one_core": 0.521,
+      "threads": 7
+    }
+  ],
+  "real_campus_network_tested": false,
+  "physical_sleep_tested": false,
+  "macos_13_tested": false,
+  "application_version": "1.0.0",
+  "version_validation": {
+    "cli": "SNNU-AutoLogin v1.0.0",
+    "bundle_version": "1.0.0",
+    "short_version": "1.0.0"
+  },
+  "source_commit": "83401fc932f3d19b887e169dc58c6af18e525f0b",
+  "workflow_run": "https://github.com/shixiang-liu/SNNU-AutoLogin/actions/runs/40517224607",
+  "measured_on": "2026-10-27"
+}

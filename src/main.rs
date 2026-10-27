@@ -22,7 +22,10 @@ use win32_main::export_diag;
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(not(target_os = "macos"))]
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+#[cfg(target_os = "macos")]
+pub use macos::VERSION;
 pub fn exe_path() -> String {
     std::env::current_exe()
         .unwrap_or_default()

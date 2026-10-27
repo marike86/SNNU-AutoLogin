@@ -7,6 +7,11 @@ import sys
 
 target, app_name, version, stage_name = sys.argv[1:]
 app, stage = pathlib.Path(app_name), pathlib.Path(stage_name)
+reported_version = subprocess.check_output(
+    [str(app / "Contents/MacOS/snnulogin"), "--version"], text=True
+).strip()
+if reported_version != f"SNNU-AutoLogin v{version}":
+    raise RuntimeError("macOS application and package versions do not match")
 info = {
     "CFBundleIdentifier": "io.github.shixiang-liu.SNNU-AutoLogin",
     "CFBundleName": "SNNU-AutoLogin",

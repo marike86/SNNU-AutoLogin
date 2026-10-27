@@ -1,12 +1,12 @@
 # macOS 使用指南
 
-支持 **macOS 13 及以上**，提供 Apple Silicon（arm64）与 Intel（x64）两种构建。
+当前版本 **v1.0.0**。支持 **macOS 13 及以上**，提供 Apple Silicon（arm64）与 Intel（x64）两个安装包。
 
-[获取构建与验证报告](https://github.com/shixiang-liu/SNNU-AutoLogin/actions/workflows/macos.yml) · [返回项目首页](../README.md) · [从源码构建](building.md#macos)
+[下载 macOS v1.0.0](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/tag/macos-v1.0.0) · [返回项目首页](../README.md) · [从源码构建](building.md#macos)
 
 ## 第一次使用
 
-1. 在成功的 macOS 构建记录中，下载对应架构的附件：M 系列芯片选择 `macos-arm64`，Intel 芯片选择 `macos-x64`。
+1. 从发布页下载对应安装包：M 系列芯片选择 `macos-arm64.zip`，Intel 芯片选择 `macos-x64.zip`。
 2. 解压，将「校园网自动登录.app」移到「应用程序」，连接学校 Wi-Fi 或有线网络。
 3. 打开应用，填写学号、校园网密码和上网方式，点击「保存并连接」。
 
@@ -19,6 +19,15 @@
 | <img src="https://raw.githubusercontent.com/shixiang-liu/SNNU-AutoLogin/main/docs/images/macos/home.png" width="300" alt="macOS 原生首页"> | <img src="https://raw.githubusercontent.com/shixiang-liu/SNNU-AutoLogin/main/docs/images/macos/settings.png" width="300" alt="macOS 设置"> |
 
 截图来自自动化验证的模拟会话，不包含真实校园网账号。
+
+## 体积与内存
+
+| 架构 | App 体积 | 在线后台物理占用 |
+| :--- | ---: | ---: |
+| Apple Silicon | 1.21 MiB | 13.39 MiB |
+| Intel | 1.25 MiB | 9.70 MiB |
+
+以上为 macOS 15.7.9 云端模拟门户测量，详见 [完整性能记录](performance.md)。
 
 ## 日常操作
 

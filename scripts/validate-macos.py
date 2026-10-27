@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import platform
+import plistlib
 import statistics
 import struct
 import subprocess
@@ -23,6 +24,15 @@ APP = pathlib.Path(sys.argv[1]).resolve()
 EXE = APP / "Contents/MacOS/snnulogin"
 OUT = pathlib.Path("dist/macos-validation").resolve()
 OUT.mkdir(parents=True, exist_ok=True)
+bundle_info = plistlib.loads((APP / "Contents/Info.plist").read_bytes())
+app_version = subprocess.check_output([str(EXE), "--version"], text=True).strip()
+assert app_version == f"SNNU-AutoLogin v{bundle_info['CFBundleShortVersionString']}"
+assert bundle_info["CFBundleVersion"] == bundle_info["CFBundleShortVersionString"]
+(OUT / "version.json").write_text(json.dumps({
+    "cli": app_version,
+    "bundle_version": bundle_info["CFBundleVersion"],
+    "short_version": bundle_info["CFBundleShortVersionString"],
+}), encoding="utf-8")
 LOCK = threading.RLock()
 STATE = {"mode": "offline", "posts": 0, "logoffs": 0, "status_requests": 0}
 

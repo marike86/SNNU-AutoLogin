@@ -1,6 +1,7 @@
 name: macOS build and validation
 on:
   push:
+    branches: ['**']
     paths: &native-paths
       - 'src/**'
       - 'vendor/**'

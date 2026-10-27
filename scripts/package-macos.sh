@@ -11,7 +11,12 @@ esac
 cargo fmt --all -- --check
 cargo test --release --locked --target "$target"
 cargo build --release --locked --target "$target"
-version="$(python3 -c 'import json,subprocess; print(json.loads(subprocess.check_output(["cargo","metadata","--no-deps","--format-version","1","--locked"]))["packages"][0]["version"])')"
+version="$("target/$target/release/snnulogin" --version)"
+version="${version#SNNU-AutoLogin v}"
+if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Invalid macOS application version: $version" >&2
+  exit 1
+fi
 stage="$PWD/target/macos-package-$arch"
 app="$stage/校园网自动登录.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist
