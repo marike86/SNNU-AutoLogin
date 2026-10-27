@@ -1,6 +1,6 @@
 # 从源码构建
 
-只想安装使用？请到 [下载页面](../README.md#下载) 获取 Windows 或 Android 版本。本页面向开发者。
+只想安装使用？请到 [下载页面](../README.md#下载) 获取对应平台版本。本页面向开发者。
 
 ## Windows
 
@@ -22,6 +22,17 @@
 cargo build --release --locked --target x86_64-pc-windows-msvc
 ```
 
+## macOS
+
+需要 macOS、Xcode Command Line Tools、Rust stable 和 Python 3。在对应架构的 Mac 上运行：
+
+```sh
+bash scripts/package-macos.sh aarch64-apple-darwin
+# Intel Mac 使用 x86_64-apple-darwin
+```
+
+安装包与校验值写入 `dist/`。构建默认使用 ad-hoc 签名，权限说明和验证范围见 [macOS 文档](macos.md)。
+
 ## Android
 
 需要完整的 JDK 21、Android SDK Platform 37.0 和 Build Tools 36.0.0，无需安装 Android Studio。
@@ -36,7 +47,8 @@ cargo build --release --locked --target x86_64-pc-windows-msvc
 
 | 路径 | 职责 |
 | :--- | :--- |
-| `src/` | Windows 原生界面、门户协议、后台与本地存储 |
+| `src/` | Windows/macOS 共享的门户协议、调度与状态模型 |
+| `src/macos/` | AppKit 界面、钥匙串、菜单栏与 macOS 系统适配 |
 | `android/app/src/main/` | Android 界面、服务、网络与账号存储 |
 | `android/app/src/test/` | Android 离线回归测试 |
 | `android/app/src/androidTest/` | Android 设备检查 |

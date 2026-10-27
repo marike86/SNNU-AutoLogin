@@ -6,10 +6,13 @@
 # Local editor and assistant data
 /.workbuddy/
 /.codex/
+/.playwright-mcp/
 /.idea/
 /.vscode/
 *.swp
 *.swo
+__pycache__/
+*.py[cod]
 
 # Local credentials, logs, reports and backups
 .env

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+<title id="title">SNNU 校园网工具</title>
+<rect width="96" height="96" rx="24" fill="#2563eb"/>
+<g fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round">
+<path d="M20 36Q48 12 76 36M30 49Q48 33 66 49M41 61Q48 55 55 61"/>
+</g><circle cx="48" cy="73" r="3.5" fill="#fff"/>
+</svg>

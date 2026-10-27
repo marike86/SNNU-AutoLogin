@@ -1,76 +1,81 @@
 <div align="center">
 
-<h1>SNNU 校园网自动登录</h1>
+<img src="docs/assets/logo.svg" width="72" height="72" alt="SNNU 校园网工具图标">
 
-<p><strong>连接学校网络，剩下的交给它。</strong></p>
+<h1>SNNU<br>校园网自动登录</h1>
 
-<p>为陕西师范大学校园网准备的轻量工具，支持校园网、移动、联通三种上网方式。</p>
+<p>连上学校网络，自动登录、掉线重连。</p>
 
 <p>
   <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/releases/tag/v1.0.1"><img src="https://img.shields.io/badge/Windows-v1.0.1-2563eb?style=flat-square" alt="Windows v1.0.1"></a>
+  <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/releases/tag/macos-v1.0.0"><img src="https://img.shields.io/badge/macOS-v1.0.0-475569?style=flat-square" alt="macOS v1.0.0"></a>
   <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/releases/tag/android-v1.0.0"><img src="https://img.shields.io/badge/Android-v1.0.0-16a34a?style=flat-square" alt="Android v1.0.0"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-64748b?style=flat-square" alt="MIT License"></a>
 </p>
 
-<p>
-  <a href="#下载"><strong>下载</strong></a> ·
-  <a href="#界面预览">界面预览</a> ·
-  <a href="#开始使用">开始使用</a> ·
-  <a href="android/README.md">Android 使用指南</a> ·
-  <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/issues">反馈问题</a>
-</p>
+<p><a href="#下载">下载安装</a> · <a href="#界面预览">界面预览</a> · <a href="#开始使用">使用指南</a> · <a href="https://github.com/shixiang-liu/SNNU-AutoLogin/issues">反馈问题</a></p>
 
 </div>
 
+为陕西师范大学校园网制作的轻量工具，支持「校园网」「移动」「联通」三种上网方式。
+
+- **自动连接**：保存账号后自动认证，掉线、换网或唤醒后检查连接。
+- **原生运行**：桌面端驻留托盘或菜单栏，安卓端通过通知栏操作。
+- **本地保存**：密码在本机加密保存，没有广告或统计 SDK。
+
 ## 下载
 
-| 平台 | 系统要求 | 下载 |
-| :--- | :--- | :--- |
-| **Windows** | Windows 10 / 11，x64 | [免安装版 ZIP](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/v1.0.1/SNNU-AutoLogin-v1.0.1-windows-x64.zip) · [单文件 EXE](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/v1.0.1/SNNU-AutoLogin.exe) |
-| **Android** | Android 8.0 及以上 | [安装包 APK](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/android-v1.0.0/SNNU-AutoLogin-android.apk) |
+| 平台 | 下载安装 |
+| :--- | :--- |
+| **Windows**<br><sub>Windows 10 / 11 · x64</sub> | [单文件 EXE](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/v1.0.1/SNNU-AutoLogin.exe) · [免安装 ZIP](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/v1.0.1/SNNU-AutoLogin-v1.0.1-windows-x64.zip) |
+| **macOS**<br><sub>macOS 13 及以上</sub> | [M 系列芯片](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/macos-v1.0.0/SNNU-AutoLogin-v1.0.0-macos-arm64.zip) · [Intel 芯片](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/macos-v1.0.0/SNNU-AutoLogin-v1.0.0-macos-x64.zip) |
+| **Android**<br><sub>Android 8.0 及以上</sub> | [安装 APK](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/download/android-v1.0.0/SNNU-AutoLogin-android.apk) |
 
-Windows 约 **1 MB**，Android 安装包不到 **60 KB**。[查看更新记录 →](https://github.com/shixiang-liu/SNNU-AutoLogin/releases)
+Windows 可直接运行 EXE，ZIP 需先解压。Mac 首次打开请参照[安装说明](docs/macos.md#第一次使用)。[查看更新记录 →](https://github.com/shixiang-liu/SNNU-AutoLogin/releases)
 
 ## 界面预览
 
-| Windows | Android |
-| :---: | :---: |
-| <img src="docs/screenshots/home.png" width="320" alt="Windows 首页：连接状态与当前账号"> | <img src="docs/images/android/home.png" width="240" alt="Android 首页：连接状态与当前账号"> |
+<p align="center">
+  <a href="docs/screenshots/home.png"><img src="docs/screenshots/home.png" width="278" height="360" align="top" alt="Windows 首页" title="Windows · 查看原图"></a>
+  <a href="docs/images/macos/home.png"><img src="docs/images/macos/home.png" width="290" height="360" align="top" alt="macOS 首页，模拟会话" title="macOS · 查看原图"></a>
+  <a href="docs/images/android/home.png"><img src="docs/images/android/home.png" width="167" height="360" align="top" alt="Android 首页" title="Android · 查看原图"></a>
+</p>
 
-[Windows 设置预览](docs/screenshots/settings.png) · [更多 Android 界面](android/README.md#界面预览)
-
-## 日常少操心
-
-- **自动登录**：保存一次账号，连上学校网络后自动认证，省去反复打开网页。
-- **断线恢复**：网络变化后自动检查，连接异常时尝试恢复；遇到账号问题会暂缓重试。
-- **原生轻量**：Windows 托盘运行，Android 通知栏快捷操作，没有广告或统计 SDK。
-- **账号留在本机**：密码加密保存，不经过开发者服务器，不会自动替换其他账号的在线连接。
+<p align="center"><a href="docs/windows.md#界面预览">Windows 更多界面</a> · <a href="docs/macos.md#界面预览">macOS 更多界面</a> · <a href="android/README.md#界面预览">Android 更多界面</a></p>
 
 ## 开始使用
 
-1. 下载对应版本，在系统中连接学校 Wi-Fi 或有线网络。
-2. 打开工具，填写学号、校园网密码和上网方式，点击「保存并连接」。
-3. 保持自动登录开启，关闭界面后仍可在后台使用。
+1. 连接学校网络。桌面端支持 Wi-Fi 和有线网络，安卓端使用 Wi-Fi。
+2. 填写学号、校园网密码和上网方式，点击「保存并连接」。
+3. 保持自动登录开启，关闭界面后继续在后台运行。
 
-Android 首次使用可按提示允许通知；需要锁屏后持续运行时，到「设置 → 后台与通知」检查后台权限。详细操作见 [Android 使用指南](android/README.md)。
+工具负责校园网认证，不会替你切换 Wi-Fi。Android 如需锁屏后持续重连，请检查「后台与通知」设置。
 
-## 文档与反馈
+使用指南：[Windows](docs/windows.md) · [macOS](docs/macos.md) · [Android](android/README.md)
 
-| 我想…… | 去这里 |
-| :--- | :--- |
-| 了解 Android 操作与后台设置 | [Android 使用指南](android/README.md) |
-| 从源码构建或参与开发 | [构建说明](docs/building.md) |
-| 查看 Android 测试与性能记录 | [验证记录](android/VALIDATION.md) |
-| 反馈问题或提出建议 | [GitHub Issues](https://github.com/shixiang-liu/SNNU-AutoLogin/issues) · [邮件](mailto:shixiang.liu@foxmail.com) |
+## 体积与内存
 
-反馈时请附上系统版本、客户端版本和复现步骤，也可以附脱敏诊断报告。请勿上传密码或完整配置文件。
+| 客户端 | 程序体积 | 后台内存记录 |
+| :--- | ---: | ---: |
+| Windows | 0.98 MiB | 13.6–58.8 MiB |
+| macOS · M 系列 | 1.21 MiB | 13.4 MiB |
+| macOS · Intel | 1.25 MiB | 9.7 MiB |
+| Android | 55.2 KiB | 23.9 MiB |
 
-## 数据与隐私
+<sub>Windows 两项为本机冷启动与加载输入法扩展后的持续运行记录。各平台测量口径不同，以上并非内存上限，详见<a href="docs/performance.md">测试环境、统计口径与原始采样</a>。</sub>
 
-账号密码只用于学校认证，保存在本机；不同客户端需要分别填写。学校认证门户使用 HTTP，**本机密码加密不代表网络传输加密**。
+## 反馈与开发
 
-诊断报告会隐藏账号，不包含密码；分享前仍请检查 IP、路径等个人信息。
+遇到问题，请在 [Issues](https://github.com/shixiang-liu/SNNU-AutoLogin/issues) 说明系统版本、客户端版本和复现步骤，也可通过[邮件](mailto:shixiang.liu@foxmail.com)联系。诊断报告请先检查并脱敏。
 
-## 许可证
+[从源码构建](docs/building.md) · [版本与提交约定](CONTRIBUTING.md) · [MIT 许可证](LICENSE)
 
-[MIT License](LICENSE)。本项目是面向陕西师范大学校园网的社区工具，与学校官方客户端无隶属关系。
+<details>
+<summary>隐私与账号说明</summary>
+
+账号只用于学校认证，不经过开发者服务器，各客户端需要分别填写密码。学校门户使用 HTTP，本机加密保存不代表网络传输加密。
+
+诊断报告不含密码，账号会脱敏；分享前仍请检查 IP、路径等个人信息，不要上传完整配置。
+
+</details>
+
+这是面向陕西师范大学校园网的社区工具，与学校官方客户端无隶属关系。

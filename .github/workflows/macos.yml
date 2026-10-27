@@ -1,0 +1,79 @@
+name: macOS build and validation
+on:
+  push:
+    branches: ['**']
+    paths: &native-paths
+      - 'src/**'
+      - 'vendor/**'
+      - 'Cargo.*'
+      - 'build.rs'
+      - '.cargo/**'
+      - 'scripts/*macos*'
+      - 'scripts/licenses/**'
+      - '.github/workflows/macos.yml'
+  pull_request:
+    paths: *native-paths
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            arch: arm64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+      - name: Isolated test keychain
+        run: |
+          security create-keychain -p fixture-only "$RUNNER_TEMP/snnu-test.keychain-db"
+          security unlock-keychain -p fixture-only "$RUNNER_TEMP/snnu-test.keychain-db"
+          security default-keychain -s "$RUNNER_TEMP/snnu-test.keychain-db"
+          security list-keychains -d user -s "$RUNNER_TEMP/snnu-test.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/snnu-test.keychain-db"
+      - uses: actions/cache/restore@v4
+        id: rust-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-rust-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+      - name: Test and package
+        run: bash scripts/package-macos.sh ${{ matrix.target }}
+      - uses: actions/cache/save@v4
+        if: always() && steps.rust-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-rust-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+      - name: Native UI, portal integration and resource measurements
+        run: python3 scripts/validate-macos.py "dist/macos-${{ matrix.arch }}/校园网自动登录.app"
+      - name: Upload packages and validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SNNU-AutoLogin-macos-${{ matrix.arch }}
+          retention-days: 3
+          path: |
+            dist/*macos*.zip
+            dist/SHA256SUMS-macos-*.txt
+            dist/macos-validation/
+          if-no-files-found: error

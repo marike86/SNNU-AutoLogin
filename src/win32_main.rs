@@ -1,26 +1,12 @@
-#![windows_subsystem = "windows"]
-//! 校园网自动登录：原生桌面界面与后台入口
-mod agent;
-mod autostart;
-mod config;
-mod desktop_ui;
-mod network;
-mod notification;
-mod portal;
-mod process_lock;
-mod tray;
-mod tray_model;
-mod ui_model;
+//! Windows 桌面入口。
+#[cfg(debug_assertions)]
+use crate::tray;
+use crate::VERSION;
+use crate::{agent, autostart, config, desktop_ui, portal};
 use desktop_ui::{run_win32, WM_DIAG_RESULT};
 use std::time::Duration;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub fn exe_path() -> String {
-    std::env::current_exe()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "snnulogin.exe".into())
-}
 
 fn console_out(text: &str) {
     use windows::Win32::System::Console::{
@@ -145,7 +131,7 @@ fn doctor() {
 }
 
 /// 一键诊断：--doctor 的内容 + 最近日志，写到桌面，方便反馈问题时直接附上
-unsafe fn export_diag(hwnd: HWND) {
+pub(crate) unsafe fn export_diag(hwnd: HWND) {
     let raw = hwnd.0 as isize;
     std::thread::spawn(move || {
         let mut report = String::new();
@@ -223,7 +209,7 @@ fn diag_desktop_path() -> Option<std::path::PathBuf> {
     None
 }
 
-fn main() {
+pub fn run() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let has = |flag: &str| args.iter().any(|a| a == flag);
 

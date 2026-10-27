@@ -88,11 +88,9 @@ fn main() {
     ] {
         println!("cargo:rerun-if-env-changed={key}");
     }
-    assert_eq!(
-        env::var("CARGO_CFG_TARGET_OS").as_deref(),
-        Ok("windows"),
-        "本项目使用 Windows 原生接口，请在 Windows 上编译"
-    );
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
     let rc = find_rc().expect("找不到 rc.exe，请安装 Windows SDK，或通过 RC 环境变量指定完整路径");
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());

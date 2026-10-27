@@ -3,15 +3,15 @@ name = "snnulogin"
 build = "build.rs"
 version = "1.0.1"
 edition = "2021"
-description = "陕师大校园网自动登录工具，提供原生 Windows 界面与后台重连"
+description = "陕师大校园网自动登录工具，提供原生 Windows / macOS 界面与后台重连"
 license = "MIT"
 readme = "README.md"
 publish = false
 
-# 唯一主程序：原生 Win32 界面
+# 单一可执行文件，按目标平台选择原生界面
 [[bin]]
 name = "snnulogin"
-path = "src/win32_main.rs"
+path = "src/main.rs"
 
 [dependencies]
 # 只访问校园网 HTTP 门户，不需要 TLS
@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 encoding_rs = "0.8"
+[target.'cfg(windows)'.dependencies]
 socket2 = "0.5.10"
 windows = { version = "0.58", features = [
   "Win32_Foundation",
@@ -42,6 +43,16 @@ windows = { version = "0.58", features = [
   "Win32_System_Com",
   "Win32_Storage_FileSystem",
 ] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+socket2 = "0.5.10"
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSGraphics", "NSApplication", "NSWindow", "NSResponder", "NSView", "NSControl", "NSButton", "NSText", "NSTextField", "NSSecureTextField", "NSPopUpButton", "NSMenu", "NSMenuItem", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSWorkspace", "NSRunningApplication", "NSImage", "NSImageRep", "NSBitmapImageRep"] }
+security-framework = { version = "3", default-features = false }
+core-foundation = "0.10"
+libc = "0.2"
 
 [patch.crates-io]
 ureq = { path = "vendor/ureq" }

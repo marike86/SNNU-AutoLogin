@@ -77,7 +77,7 @@ fn physical_ipv4() -> Option<Ipv4Addr> {
     unsafe {
         let mut size = 16_384u32;
         for _ in 0..3 {
-            let mut buffer = vec![0u64; (size as usize + 7) / 8];
+            let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
             let first = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
             let result = GetAdaptersAddresses(
                 AF_INET.0 as u32,
@@ -122,7 +122,7 @@ fn physical_ipv4() -> Option<Ipv4Addr> {
                                 if !ip.is_unspecified()
                                     && !ip.is_loopback()
                                     && !ip.is_link_local()
-                                    && best.map_or(true, |(rank, _)| priority < rank)
+                                    && best.is_none_or(|(rank, _)| priority < rank)
                                 {
                                     best = Some((priority, ip));
                                 }
@@ -144,7 +144,7 @@ pub fn current_name() -> String {
         let mut size = 16_384u32;
         for _ in 0..3 {
             // IP_ADAPTER_ADDRESSES 需要指针对齐，不能直接把 Vec<u8> 强转。
-            let mut buffer = vec![0u64; (size as usize + 7) / 8];
+            let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
             let first = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
             let result =
                 GetAdaptersAddresses(0, GAA_FLAG_INCLUDE_GATEWAYS, None, Some(first), &mut size);

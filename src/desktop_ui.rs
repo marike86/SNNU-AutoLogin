@@ -342,16 +342,18 @@ struct Snapshot {
 }
 impl Snapshot {
     fn preview(kind: &str) -> Self {
-        let mut state = config::State::default();
-        state.reconnect_paused = matches!(kind, "paused" | "paused-online");
-        state.no_internet = kind == "warning";
-        state.last_error = match kind {
-            "error" => "您的账号密码有误",
-            "captcha" => "需要验证码",
-            "balance" => "账号已欠费",
-            _ => "",
-        }
-        .into();
+        let state = config::State {
+            reconnect_paused: matches!(kind, "paused" | "paused-online"),
+            no_internet: kind == "warning",
+            last_error: match kind {
+                "error" => "您的账号密码有误",
+                "captcha" => "需要验证码",
+                "balance" => "账号已欠费",
+                _ => "",
+            }
+            .into(),
+            ..Default::default()
+        };
         Self {
             revision: REFRESH_EPOCH.current(),
             status: if matches!(
@@ -1837,9 +1839,7 @@ unsafe fn draw_power(dis: &DRAWITEMSTRUCT) {
     let focused = dis.itemState.0 & 0x0010 != 0;
     let pressed = dis.itemState.0 & 0x0001 != 0;
     let hover = ui().hover == PRIMARY;
-    let fg = if active {
-        BLUE
-    } else if tone == Tone::Neutral {
+    let fg = if active || tone == Tone::Neutral {
         BLUE
     } else {
         color(tone)
@@ -2635,7 +2635,7 @@ pub fn run_win32() -> Result<(), String> {
             lpfnWndProc: Some(wndproc),
             hInstance: HINSTANCE(hinst.0),
             hCursor: LoadCursorW(None, IDC_ARROW).unwrap_or_default(),
-            hIcon: LoadIconW(hinst, PCWSTR(1usize as *const u16)).unwrap_or_default(),
+            hIcon: crate::tray::app_icon(),
             lpszClassName: class,
             ..Default::default()
         };

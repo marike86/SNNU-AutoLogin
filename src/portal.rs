@@ -24,12 +24,9 @@ pub fn host() -> String {
 
 // All campus requests share the same physical route, including login and logout.
 fn request_builder() -> ureq::AgentBuilder {
-    let builder = ureq::AgentBuilder::new();
-    #[cfg(windows)]
-    let builder = builder
+    ureq::AgentBuilder::new()
         .try_proxy_from_env(false)
-        .tcp_connector(crate::network::connect_portal);
-    builder
+        .tcp_connector(crate::network::connect_portal)
 }
 
 #[cfg(all(test, windows))]
@@ -157,9 +154,7 @@ fn take_account(body: &str) -> Option<String> {
                 _ => {}
             }
         }
-        out.replace("&nbsp;", " ")
-            .replace('：', " ")
-            .replace(':', " ")
+        out.replace("&nbsp;", " ").replace(['：', ':'], " ")
     };
     let value = cleaned.split_whitespace().next()?;
     if value.len() < 4
@@ -270,6 +265,10 @@ fn probe_candidates(
     timeout: Duration,
     discover: bool,
 ) -> Option<(Status, String, u16)> {
+    #[cfg(target_os = "macos")]
+    let discover = discover
+        && !(std::env::var_os("SNNU_DATA_DIR").is_some()
+            && std::env::var("SNNU_PORTAL_HOST").as_deref() == Ok("127.0.0.1"));
     use std::{sync::mpsc, time::Instant};
     let deadline = Instant::now() + timeout;
     let (tx, rx) = mpsc::channel();
@@ -317,6 +316,14 @@ fn probe_candidates(
         }
     }
     drop(tx);
+    select_probe(rx, deadline)
+}
+
+fn select_probe(
+    rx: std::sync::mpsc::Receiver<(usize, String, u16, Option<Status>)>,
+    deadline: std::time::Instant,
+) -> Option<(Status, String, u16)> {
+    use std::time::Instant;
     let mut offline: Option<(usize, Status, String, u16)> = None;
     let mut offline_deadline = None;
     loop {
@@ -463,7 +470,7 @@ pub fn clean_text(html: &str) -> String {
                     chars.next();
                 }
                 let mut tail = String::new();
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     tail.push(c);
                     if tail.ends_with("-->") {
                         break;
@@ -558,7 +565,7 @@ pub fn classify(body: &str) -> (bool, String) {
         "绑定失败",
     ];
     if let Some(seg) = txt
-        .split(|c| c == '。' || c == '!' || c == '！' || c == ';' || c == '；')
+        .split(['。', '!', '！', ';', '；'])
         .map(str::trim)
         .find(|seg| credential_errors.iter().any(|w| seg.contains(w)))
     {
@@ -575,7 +582,7 @@ pub fn classify(body: &str) -> (bool, String) {
     ];
     // 门户明确写了什么，就显示什么；只统一清理 HTML / 表单噪声。
     if let Some(seg) = txt
-        .split(|c| c == '。' || c == '!' || c == '！' || c == ';' || c == '；')
+        .split(['。', '!', '！', ';', '；'])
         .map(str::trim)
         .find(|seg| captcha_errors.iter().any(|w| seg.contains(w)))
     {
@@ -609,7 +616,7 @@ pub fn classify(body: &str) -> (bool, String) {
     }
 
     let words = ["失败", "错误", "无效", "已过期", "认证", "在线数"];
-    for seg in txt.split(|c| c == '。' || c == '!' || c == '！' || c == ';' || c == '；') {
+    for seg in txt.split(['。', '!', '！', ';', '；']) {
         let seg = seg.trim();
         if !seg.is_empty() && words.iter().any(|w| seg.contains(w)) {
             return (false, take_chars(seg, 120));
@@ -919,6 +926,12 @@ pub fn internet_ping() -> bool {
 }
 
 pub fn internet_ok() -> bool {
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("SNNU_DATA_DIR").is_some()
+        && std::env::var("SNNU_PORTAL_HOST").as_deref() == Ok("127.0.0.1")
+    {
+        return internet_probe("http://127.0.0.1:8601/generate_204", 204, "");
+    }
     let probes = [
         ("http://connect.rom.miui.com/generate_204", 204, ""),
         (
@@ -1046,8 +1059,10 @@ pub fn online_minutes(login_time: &str) -> Option<u64> {
 
 /// 本机当前时间的"日历秒"：和 parse_portal_time 同一把尺子
 fn local_naive_now() -> f64 {
-    use windows::Win32::System::SystemInformation::GetLocalTime;
-    let t = unsafe { GetLocalTime() };
+    #[cfg(windows)]
+    let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    #[cfg(target_os = "macos")]
+    let t = crate::macos::local_time();
     days_from_civil(t.wYear as i64, t.wMonth as i64, t.wDay as i64) as f64 * 86400.0
         + (t.wHour as i64 * 3600 + t.wMinute as i64 * 60 + t.wSecond as i64) as f64
 }
@@ -1304,26 +1319,49 @@ mod tests {
 
     #[test]
     fn an_online_session_wins_over_a_fast_login_form() {
-        let (offline, first) = serve(response(
+        // Queue replies in the exact order under test. A sleeping HTTP server
+        // cannot guarantee it runs inside the 100 ms priority window on macOS.
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send((0, "offline".into(), 8601, Some(Status::Offline)))
+            .unwrap();
+        let online = session_of("当前登录账号：<span>20241234@mobile</span>").unwrap();
+        tx.send((1, "online".into(), 8602, Some(Status::Online(online))))
+            .unwrap();
+        drop(tx);
+        let result = select_probe(rx, std::time::Instant::now() + Duration::from_secs(1)).unwrap();
+        assert!(matches!(result.0, Status::Online(_)));
+        assert_eq!((result.1.as_str(), result.2), ("online", 8602));
+    }
+
+    #[test]
+    fn completed_login_forms_keep_candidate_preference() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send((2, "fallback".into(), 8603, Some(Status::Offline)))
+            .unwrap();
+        tx.send((0, "preferred".into(), 8601, Some(Status::Offline)))
+            .unwrap();
+        drop(tx);
+        let result = select_probe(rx, std::time::Instant::now() + Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            (result.0, result.1.as_str(), result.2),
+            (Status::Offline, "preferred", 8601)
+        );
+    }
+
+    #[test]
+    fn parallel_probe_reads_a_real_online_http_response() {
+        let (url, worker) = serve(response(
             "200 OK",
-            "<input name=\"account\"><input name=\"password\">",
+            "当前登录账号：<span>20241234@mobile</span>",
         ));
-        let (online, second) = serve_sequence(vec![(
-            Duration::from_millis(20),
-            response("200 OK", "当前登录账号：<span>20241234@mobile</span>"),
-        )]);
         let result = probe_candidates(
-            vec![
-                parse_host_port(&offline).unwrap(),
-                parse_host_port(&online).unwrap(),
-            ],
-            Duration::from_secs(1),
+            vec![parse_host_port(&url).unwrap()],
+            Duration::from_secs(2),
             false,
         )
         .unwrap();
         assert!(matches!(result.0, Status::Online(_)));
-        first.join().unwrap();
-        second.join().unwrap();
+        worker.join().unwrap();
     }
 
     #[test]
@@ -1344,6 +1382,7 @@ mod tests {
         assert_eq!(result.unwrap_err(), "自动登录已暂停");
     }
 
+    #[cfg(windows)]
     #[test]
     fn queued_login_rechecks_pause_after_acquiring_connection_lock() {
         use std::process::{Command, Stdio};

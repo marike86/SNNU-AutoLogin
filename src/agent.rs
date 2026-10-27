@@ -19,6 +19,7 @@ pub fn ctl_port() -> u16 {
     49721 + (sum % 400) as u16
 }
 
+#[cfg(windows)]
 pub fn spawn_daemon() {
     use std::os::windows::process::CommandExt;
     let _ = std::process::Command::new(crate::exe_path())
@@ -42,6 +43,7 @@ pub fn stop_daemon() -> bool {
 }
 
 /// 监听系统网络地址变化（插拔网线、Wi-Fi 连断、换网），一有变化立刻叫醒巡检
+#[cfg(windows)]
 fn spawn_net_watch(wake: Arc<AtomicBool>) {
     use windows::Win32::NetworkManagement::IpHelper::NotifyAddrChange;
     std::thread::spawn(move || {
@@ -67,6 +69,7 @@ fn spawn_net_watch(wake: Arc<AtomicBool>) {
 }
 
 /// 后台守护只允许一个：避免多个进程各加一个托盘图标、互相抢着登录
+#[cfg(windows)]
 fn claim_daemon_instance() -> bool {
     use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows::Win32::System::Threading::CreateMutexW;
@@ -88,6 +91,7 @@ fn claim_daemon_instance() -> bool {
     }
 }
 
+#[cfg(windows)]
 unsafe extern "system" fn power_wndproc(
     hwnd: windows::Win32::Foundation::HWND,
     msg: u32,
@@ -114,6 +118,7 @@ unsafe extern "system" fn power_wndproc(
 
 /// 休眠/唤醒监听：恢复供电时等网卡就绪，立刻叫醒巡检
 /// （message-only 窗口收不到电源广播，必须用隐藏的顶层窗口）
+#[cfg(windows)]
 fn spawn_power_watch(wake: Arc<AtomicBool>) {
     use windows::core::PCWSTR;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -190,22 +195,35 @@ pub fn run_daemon() {
     };
     crate::config::logf(&format!("后台已启动 v{}", crate::VERSION));
 
-    let quit = Arc::new(AtomicBool::new(false));
-    let wake = Arc::new(AtomicBool::new(false));
-    spawn_net_watch(wake.clone());
-    spawn_power_watch(wake.clone());
+    #[cfg(windows)]
+    let (quit, wake) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    #[cfg(target_os = "macos")]
+    let (quit, wake) = crate::macos::runtime::signals();
+    #[cfg(windows)]
+    {
+        spawn_net_watch(wake.clone());
+        spawn_power_watch(wake.clone());
+    }
     crate::tray::start(quit.clone());
     {
         let quit = quit.clone();
         std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                if let Ok(mut s) = stream {
-                    let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
-                    let mut buf = [0u8; 1];
-                    if s.read(&mut buf).is_ok() && buf[0] == b'Q' {
-                        quit.store(true, Ordering::SeqCst);
-                        break;
-                    }
+            for mut s in listener.incoming().flatten() {
+                let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
+                let mut buf = [0u8; 1];
+                let received = s.read(&mut buf).is_ok();
+                #[cfg(target_os = "macos")]
+                if received && buf[0] == b'O' {
+                    crate::macos::runtime::OPEN_REQUESTED.store(true, Ordering::SeqCst);
+                }
+                if received && buf[0] == b'Q' {
+                    quit.store(true, Ordering::SeqCst);
+                    #[cfg(target_os = "macos")]
+                    crate::macos::runtime::wake();
+                    break;
                 }
             }
         });
@@ -236,10 +254,25 @@ pub fn run_daemon() {
                 was_online = false;
             }
             crate::tray::refresh_tip();
+            #[cfg(windows)]
             sleep(1, &quit, &wake);
+            #[cfg(target_os = "macos")]
+            sleep(
+                if st.reconnect_paused {
+                    300
+                } else {
+                    (st.paused_until - portal::unix_now()).max(1.0).ceil() as u64
+                },
+                &quit,
+                &wake,
+            );
             continue;
         }
+        #[cfg(target_os = "macos")]
+        let probe_epoch = crate::macos::runtime::EPOCH.current();
         let (status, port) = portal::status(Duration::from_secs(4));
+        #[cfg(target_os = "macos")]
+        crate::macos::runtime::publish_probe(status.clone(), probe_epoch);
         if quit.load(Ordering::SeqCst) {
             break;
         }
@@ -410,6 +443,7 @@ fn recovery_text(elapsed: Duration) -> String {
     }
 }
 
+#[cfg(windows)]
 fn sleep(secs: u64, quit: &Arc<AtomicBool>, wake: &Arc<AtomicBool>) {
     let step = Duration::from_millis(200);
     let mut left = secs * 1000;
@@ -567,6 +601,7 @@ mod tests {
         assert!(wake.swap(false, Ordering::SeqCst));
     }
 
+    #[cfg(windows)]
     #[test]
     fn sent_resume_message_wakes_without_going_through_getmessage() {
         use windows::core::{w, PCWSTR};
@@ -643,4 +678,17 @@ mod tests {
         s.paused_until = 5000.0;
         assert!(!repair_due(&s, 4000.0));
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn spawn_daemon() {
+    crate::macos::runtime::start();
+}
+#[cfg(target_os = "macos")]
+fn claim_daemon_instance() -> bool {
+    true
+}
+#[cfg(target_os = "macos")]
+fn sleep(secs: u64, quit: &Arc<AtomicBool>, wake: &Arc<AtomicBool>) {
+    crate::macos::runtime::wait(Duration::from_secs(secs), quit, wake);
 }
