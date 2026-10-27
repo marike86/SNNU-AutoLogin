@@ -2,6 +2,7 @@ name: Android build
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -45,7 +46,9 @@ jobs:
             LICENSE
           if-no-files-found: error
 
+  # Emulator images are large and flaky on shared runners; run the matrix on demand.
   emulator:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
