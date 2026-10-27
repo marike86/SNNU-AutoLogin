@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- The campus portal and redirect discovery use HTTP and may change host.
+         PortalClient gates every credential request and refuses cross-origin redirects. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

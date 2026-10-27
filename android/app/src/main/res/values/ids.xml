@@ -1,0 +1,15 @@
+<resources>
+    <item name="account" type="id" />
+    <item name="password" type="id" />
+    <item name="save_account" type="id" />
+    <item name="home_action" type="id" />
+    <item name="home_status" type="id" />
+    <item name="home_account" type="id" />
+    <item name="home_operator" type="id" />
+    <item name="home_account_caption" type="id" />
+    <item name="auto_connect" type="id" />
+    <item name="notification_status" type="id" />
+    <item name="battery_status" type="id" />
+    <item name="help_background" type="id" />
+    <item name="network_status" type="id" />
+</resources>
