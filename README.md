@@ -1,36 +1,50 @@
-# 陕师大校园网自动登录
+# SNNU 校园网自动登录
 
-连接学校网络，剩下的交给它
+连接学校网络，剩下的交给它。
 
-面向陕西师范大学校园网的 Windows 小工具，提供自动登录、掉线重连和托盘运行。Rust + 原生 Win32 界面，免安装，双击即可运行
+陕西师范大学 Dr.COM 校园网的一键认证工具。Windows、macOS、Android 三个原生客户端，同一套行为：自动登录、掉线重连、假在线修复，密码只在本机加密保存。
 
-**v1.0.1 · Windows 10 / 11 x64 · MIT 开源**
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-0078d4?logo=windows)](#windows)
+[![macOS](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white)](docs/macos.md)
+[![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84?logo=android&logoColor=white)](android/README.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/shixiang-liu/SNNU-AutoLogin)](https://github.com/shixiang-liu/SNNU-AutoLogin/releases)
 
-[下载最新版](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/latest) · [反馈问题](https://github.com/shixiang-liu/SNNU-AutoLogin/issues)
+| 平台 | 版本 | 形态 | 具体要求 |
+| --- | --- | --- | --- |
+| Windows | 1.0.1 | 免安装绿色版，约 1 MB 单文件 | Windows 10 / 11 x64 |
+| Android | 1.0.0 | 独立 APK，正式签名 | Android 8.0 及以上 |
+| macOS | 测试版 | 原生应用 | macOS 13+（Apple Silicon / Intel） |
 
-## 轻巧，日常少操心
-
-- **约 1 MB 的单文件程序**：EXE 为 1,025,536 字节，约 0.98 MiB
-- **后台占用低**：v1.0.0 在本机已连接、关闭界面时，工作集约 14 MiB，私有内存约 2.6 MiB；本版尚未重新测量
-- **免安装绿色版**：解压运行，不需要管理员权限，不安装服务或驱动
-- **无需额外运行库**：VC++ 运行库静态链接，不依赖 Electron、WebView2、Java 或 .NET
-- **默认在本机处理账号**：密码使用 Windows DPAPI 加密保存，发布文件不包含预设账号
-- **界面保持简单**：首页一个按钮控制连接，关闭窗口后继续在托盘运行
-
-内存数据来自 Windows 11 x64 上 60 秒的采样（每 2 秒一次，共 30 次），实际占用随环境和运行状态变化。
-
-「绿色版」指免安装：保存账号、记录日志和开启开机自启动时，仍会写入当前用户的数据目录或启动项。
+三个客户端各自保存账号，互不迁移；Windows 的 DPAPI 密码不能导到 Android 的 Keystore。
 
 ## 界面预览
 
-以下为软件实际界面的原始尺寸截图，学号、密码区域和 IP 已使用不透明遮盖处理
+Android 与 Windows 均为真机截图，学号、密码区域和 IP 已用不透明色块遮盖。
+
+### Android
+
+| 主页 | 设置 | 连接诊断 |
+| --- | --- | --- |
+| <img src="docs/images/android/home.png" width="240" alt="Android 主页"> | <img src="docs/images/android/settings.png" width="240" alt="Android 设置"> | <img src="docs/images/android/network.png" width="240" alt="Android 连接诊断"> |
+
+<details>
+<summary>账号设置、后台与通知、使用帮助</summary>
+
+| 账号设置 | 后台与通知 | 使用帮助 |
+| --- | --- | --- |
+| <img src="docs/images/android/account.png" width="240" alt="Android 账号设置"> | <img src="docs/images/android/background.png" width="240" alt="Android 后台与通知"> | <img src="docs/images/android/help.png" width="240" alt="Android 使用帮助"> |
+
+</details>
+
+### Windows
 
 | 主页 | 设置 |
 | --- | --- |
 | ![主页](docs/screenshots/home.png) | ![设置](docs/screenshots/settings.png) |
 
 <details>
-<summary>查看账号设置、功能介绍和网络信息</summary>
+<summary>功能介绍、网络信息与账号设置</summary>
 
 | 功能介绍 | 网络信息 |
 | --- | --- |
@@ -40,127 +54,114 @@
 
 </details>
 
-## 开始使用
+macOS 界面与 Windows 一致，构建方式见 [macOS 说明](docs/macos.md)。
 
-1. 从 [Releases](https://github.com/shixiang-liu/SNNU-AutoLogin/releases/latest) 下载 Windows x64 发布包
-2. 解压到固定位置，双击「校园网自动登录.exe」
-3. 填写学号、校园网密码和上网方式，点击「保存并连接」
-
-每位用户首次使用都需要保存自己的账号密码。若校园网网页已登录，程序可能识别当前在线学号，但不会读取网页密码。主页会显示当前 Wi-Fi 的真实名称，有线连接显示「有线网络」。
-
-| 操作 | 效果 |
-| --- | --- |
-| 首页圆形按钮：连接 | 连接校园网认证，同时开启自动登录 |
-| 首页圆形按钮：断开 | 断开校园网认证，同时关闭自动登录；Wi-Fi 保持连接 |
-| 设置 → 自动登录 | 决定是否自动登录与重连；关闭后保留当前连接 |
-| 设置 → 开机自动运行 | 决定是否随 Windows 启动后台 |
-| 关闭窗口 | 关闭界面，后台继续运行 |
-| 单击托盘图标 | 打开界面 |
-| 托盘右键 → 退出程序 | 退出界面与后台，保留当前网络连接 |
-
-## 功能
+## 能做什么
 
 | 功能 | 说明 |
 | --- | --- |
-| 自动登录 | 连接学校网络后自动完成认证 |
-| 开机运行 | 随 Windows 启动后台，可在设置中关闭 |
-| 自动重连 | 掉线、换网和休眠唤醒后检查连接，按网络情况重新认证 |
-| 连接保活 | 定时发送轻量请求，维持连接活动 |
-| 异常处理 | 失败后退避重试，账号异常时暂缓提交，网络修复设有冷却时间 |
-| 认证地址自动识别 | 认证地址变化时重新寻找并验证门户 |
-| 密码加密保存 | 使用 Windows DPAPI 在当前用户下加密保存密码 |
-| 托盘运行 | 单击打开，右键进行快捷操作，关闭窗口不退出后台 |
-| 诊断报告 | 查看网络信息，导出账号脱敏的连接信息与最近日志 |
+| 自动登录 | 连上学校网络后自动完成认证，不需要每次打开网页 |
+| 掉线重连 | 网络变化、休眠唤醒、系统限流后重新认证 |
+| 假在线修复 | 门户显示在线但外网不通时，确认本人会话后才重新登录，不覆盖别人的登录 |
+| 失败处理 | 密码错误、欠费、验证码、设备数超限分别归类；异常时暂缓提交，避免把账号试锁 |
+| 认证地址发现 | 门户地址变化时自动重新识别，陌生地址需用户确认后才提交密码 |
+| 密码加密 | Windows 用 DPAPI、Android 用 Keystore、macOS 用钥匙串，明文不落盘 |
+| 诊断导出 | 账号脱敏的连接信息与最近日志，方便反馈问题 |
+| 轻量 | Windows 约 1 MB 单文件；Android 约 55 KB，没有常驻第三方运行时 |
 
-界面支持高 DPI、键盘操作、加载反馈与长内容滚动。自动修复网络前会再次确认在线账号和上网方式，避免自动修复影响其他账号。
+## 下载与安装
 
-## 数据与隐私
+从 [Releases](https://github.com/shixiang-liu/SNNU-AutoLogin/releases) 下载对应平台的文件。
 
-账号和运行数据保存在当前 Windows 用户目录，不写入 EXE
+### Windows
 
-```text
-%APPDATA%\SNNU-AutoLogin\config.json   账号和加密后的密码
-%APPDATA%\SNNU-AutoLogin\state.json    运行状态与认证地址缓存
-%APPDATA%\SNNU-AutoLogin\login.log     运行日志，超过 200 KB 自动轮转
-```
+1. 解压到固定位置，双击「校园网自动登录.exe」
+2. 填写学号、校园网密码和上网方式，点击「保存并连接」
+3. 关闭窗口后程序在托盘继续运行
 
-密码使用 Windows DPAPI 加密，账号密码仅提交给学校认证门户。联网检测会访问小米、微软的公开检测地址，不携带账号密码。诊断报告不包含密码，账号会脱敏；分享前请检查其中的 IP、文件路径等信息。
+### Android
 
-如需移除程序，先关闭「开机自动运行」，从托盘退出，再删除程序文件。如需一并清空本机记录，可在退出后删除上述数据目录。
+1. 安装 `SNNU-AutoLogin-android.apk`，按提示允许通知
+2. 连接学校 Wi-Fi，填写账号、密码和上网方式，点击「保存并连接」
+3. 之后连上学校 Wi-Fi 会自动认证；关闭「自动登录」即停止后台并保留当前连接
 
-## 从源码编译
+详细说明见 [Android 说明](android/README.md) 与 [验证记录](android/VALIDATION.md)。
 
-需要 Windows、Rust stable 的 `x86_64-pc-windows-msvc` 工具链，以及 Visual Studio Build Tools 的「使用 C++ 的桌面开发」组件和 Windows SDK
+### macOS
 
-```powershell
-cargo build --release --locked
-```
-
-产物为 `target/x86_64-pc-windows-msvc/release/snnulogin.exe`。项目默认构建 Windows x64，并静态链接 VC++ 运行库。编译脚本会自动寻找 Windows SDK 中的资源编译器；自定义安装可用 `RC` 环境变量指定 `rc.exe` 路径。版本由 `Cargo.toml` 生成，界面和 EXE 文件属性保持一致。
-
-检查和打包：
-
-```powershell
-cargo fmt --all -- --check
-cargo test --release --locked
-./scripts/package.ps1
-```
-
-打包脚本会执行格式检查、回归测试和发布构建，并生成：
-
-- `dist/SNNU-AutoLogin-v1.0.1-windows-x64.zip`：程序、README 使用说明和许可证
-- `dist/SNNU-AutoLogin.exe`：独立可执行文件
-- `dist/SHA256SUMS.txt`：文件校验值
-
-发布构建将本机编译目录映射为通用路径，不嵌入开发者的目录信息。GitHub Actions 在推送和 Pull Request 时执行检查并上传构建产物。`Cargo.lock` 纳入版本管理，构建产物、本机配置、日志和编辑器数据均已忽略。
+见 [macOS 说明](docs/macos.md)。
 
 ## 项目结构
 
 ```text
-src/
-  win32_main.rs    程序入口、命令行、诊断导出
-  desktop_ui.rs    原生 Win32 界面与交互
-  ui_model.rs      状态文案与主要操作
-  network.rs       Windows Wi-Fi 和有线网络信息
-  portal.rs        门户探测、认证、地址发现与错误归类
-  agent.rs         后台巡检、重连、保活和控制接口
-  config.rs        配置、DPAPI 加密与原子写入
-  process_lock.rs  跨进程互斥
-  autostart.rs     当前用户的开机运行设置
-  notification.rs 通知状态与过期控制
-  tray.rs         Windows 托盘与快捷操作
-  tray_model.rs   托盘事件与菜单模型
-scripts/          检查、打包与第三方许可证收集
-docs/screenshots/ 界面预览截图
-.cargo/           Windows x64 与静态运行库构建设置
-.github/          Windows 持续集成
-app.rc            Windows 图标与版本资源模板
-app.manifest      系统兼容与 DPI 声明
-build.rs          SDK 发现与资源编译
+src/                Windows 与 macOS 共用的 Rust 代码
+  main.rs           按平台选择原生程序入口
+  win32_main.rs     Windows 命令行与诊断导出
+  macos/            macOS 原生窗口、菜单栏、钥匙串与系统适配
+  desktop_ui.rs     原生 Win32 界面与交互
+  ui_model.rs       状态文案与主要操作
+  network.rs        Windows Wi-Fi 和有线网络信息
+  portal.rs         门户探测、认证、地址发现与错误归类
+  agent.rs          后台巡检、重连、保活和控制接口
+  config.rs         配置、DPAPI 加密与原子写入
+  process_lock.rs   跨进程互斥
+  autostart.rs      当前用户的开机运行设置
+  notification.rs   通知状态与过期控制
+  tray.rs           Windows 托盘与快捷操作
+  tray_model.rs     托盘事件与菜单模型
+android/            Android 客户端（Java，原生控件，无第三方运行时）
+  app/src/main/     界面、前台服务、门户协议与本地存储
+  app/src/test/     协议、状态、调度与脱敏的离线测试
+  app/src/androidTest/ 设备冒烟测试
+scripts/            检查、打包、性能测量与 CI 辅助脚本
+docs/screenshots/   Windows 界面预览
+docs/images/android/ Android 界面预览
+.cargo/             Windows x64 与静态运行库构建设置
+.github/            Windows、macOS、Android 持续集成
+app.rc               Windows 图标与版本资源模板
+app.manifest         系统兼容与 DPI 声明
+build.rs             SDK 发现与资源编译
 ```
 
-调试构建支持离线界面预览，不修改真实账号配置或校园网认证
+## 从源码构建
+
+### Windows / macOS
+
+需要 Rust stable 与对应平台工具链；Windows 另需 Visual Studio Build Tools 的「使用 C++ 的桌面开发」组件和 Windows SDK。
 
 ```powershell
-cargo run -- --preview online
-cargo run -- --preview warning --preview-page help
-cargo run -- --preview features --preview-dpi 192
+cargo build --release --locked --target x86_64-pc-windows-msvc
+./scripts/package.ps1
 ```
 
-## 反馈与适用范围
+### Android
 
-本项目针对陕西师范大学的 Dr.COM 校园网门户，不是通用的校园网客户端。首次公开版本为 1.0.0，后续根据用户反馈维护。
+需要 JDK 21、Android SDK Platform 37 与 Build Tools 36。不需要 Android Studio。
 
-可以通过 [GitHub Issues](https://github.com/shixiang-liu/SNNU-AutoLogin/issues) 或反馈邮箱 [shixiang.liu@foxmail.com](mailto:shixiang.liu@foxmail.com) 联系作者。
+```powershell
+./android/gradlew.bat -p android testDebugUnitTest lintDebug assembleBenchmark
+./scripts/android-package.ps1            # 测试包
+./scripts/android-package.ps1 -Release   # 正式包，需要 SNNU_KEYSTORE 等四个环境变量
+```
 
-反馈时请附程序版本、Windows 版本、复现步骤和预期结果。连接异常可在「设置 → 网络信息」导出诊断报告，请勿提交密码或完整配置文件。命令行自检可使用 `snnulogin.exe --doctor`，本地输出包含账号，公开分享时请先脱敏。
+正式签名通过 `SNNU_KEYSTORE`、`SNNU_STORE_PASSWORD`、`SNNU_KEY_ALIAS`、`SNNU_KEY_PASSWORD` 注入，密钥与密码不进入仓库。
+
+## 数据与隐私
+
+账号密码只提交给学校认证门户，不经过第三方服务。
+
+- Windows：`%APPDATA%\SNNU-AutoLogin\` 下的配置、状态与日志，密码用 DPAPI 加密
+- Android：应用私有目录，密码用 Android Keystore 加密，禁止备份与设备迁移
+- macOS：钥匙串保存密码
+
+诊断报告与日志中的账号会脱敏，不包含密码；分享前仍请检查 IP、路径等信息。联网检测只访问小米、微软的公开检测地址，不携带账号密码。
+
+## 反馈
+
+通过 [GitHub Issues](https://github.com/shixiang-liu/SNNU-AutoLogin/issues) 或 [shixiang.liu@foxmail.com](mailto:shixiang.liu@foxmail.com) 反馈。请附平台与版本、复现步骤、预期结果；Windows 可用 `snnulogin.exe --doctor`，Android 可在「设置 → 网络信息」导出脱敏报告。请勿提交密码或完整配置文件。
+
+本项目针对陕西师范大学的 Dr.COM 校园网门户，不是通用校园网客户端。
 
 ## 许可证
 
-[MIT License](LICENSE)
-
-本项目是社区工具，与学校官方客户端无隶属关系
-
-## v1.0.1 更新
-
-修复开启 FlClash 等虚拟网卡后，校园网已经登录却显示“等待校园网”的问题。认证请求自动绑定当前物理网络，未开启代理时同样使用；不修改系统代理或路由。账号配置继续保留。详细测试与多网卡边界见 [验证记录](docs/windows-network-fix-validation.md)。
+[MIT License](LICENSE)。社区工具，与学校官方客户端无隶属关系。
