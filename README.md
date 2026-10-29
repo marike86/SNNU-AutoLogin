@@ -47,7 +47,9 @@
 
 ## 下载与安装
 
-前往 [Releases](../../releases/latest) 下载最新安装包 `SNNUAutoLogin-Setup-1.5.0.exe`，双击按向导下一步即可（向导全中文）。
+前往 [Releases](../../releases/latest) 下载最新安装包 `SNNUAutoLogin-Setup-1.5.1.exe`，双击按向导下一步即可（向导全中文）。
+
+便携版下载 `SNNUAutoLogin-Portable-1.5.1-win-x64.zip`，**完整解压到固定目录**后运行 `SNNUAutoLogin.exe`，无需安装运行时。不要只复制 exe；其余 DLL 和资源必须保留。移动目录后手动运行一次，程序会把开机启动项更新到新位置。凭据仍按下文保存在当前用户的 LocalAppData 中。
 
 | 项目 | 说明 |
 | --- | --- |
@@ -99,6 +101,10 @@
 | 退出 | 真正结束进程 |
 
 开机自启写入 `"...\SNNUAutoLogin.exe" --tray`，开机不弹窗，直接静默驻留。
+
+开关变更立即写入当前用户的启动项，无需管理员权限；写入失败会记录日志并回退开关。首次运行会按保存的设置注册，目录移动或旧启动命令缺少 `--tray` 时会修复。Windows 登录用户后才会启动程序；若在任务管理器中禁用了此启动项，需要先手动重新启用。
+
+「开机自动登录」与「断线自动重连」分别控制：开机登录在网络就绪后完成一次认证（失败按退避策略重试）；认证成功后是否继续自动补登录由自动重连开关控制。账号和密码需先填写保存。
 
 ### 图形验证码
 
@@ -189,6 +195,8 @@ dotnet build -c Debug -p:Platform=x64
 ```
 
 发布便携版（自包含）：
+
+运行 `powershell -File tools/build_portable.ps1` 会生成 `artifacts/SNNUAutoLogin-Portable-<版本>-win-x64.zip` 及 SHA256 校验文件。安装 Inno Setup 6 后运行 `powershell -File tools/build_release.ps1`，会用同一份自包含发布目录同时生成安装版 EXE、便携版 ZIP 和 `SHA256SUMS.txt`。GitHub Actions 的 Windows release build 会运行启动项、登录及凭据回归检查，验证安装、启动、卸载，再上传两种包。也可以只发布目录：
 
 ```bat
 dotnet publish -c Release -r win-x64 -p:Platform=x64 --self-contained -o release
@@ -296,6 +304,18 @@ Portal 偶发要求验证码（连续快速重连、换出口、学校开风控�
 Windows 会把不常用图标折叠进「^」溢出区，拖出来固定一下即可。
 
 ## 更新记录
+
+### 1.5.1
+
+合并社区贡献的 PR（[@marike86](https://github.com/marike86)），主要修开机自启与凭据保存这几处：
+
+- **开机自启真的会注册了**：以前首次运行可能压根没写启动项，开关显示「已开」但注册失败也不报错。现在启动时按保存的设置同步 `HKCU\Run`，主窗口和托盘共用同一套写入、校验与失败回退逻辑
+- **便携版换目录不再误判**：原来用「路径里含 exe 文件名」判断，把程序挪到别处仍认为旧项有效；现在按整条命令严格比对，缺 `--tray` 的旧命令也会被修好
+- **开机自动登录不再依赖「断线自动重连」**：`--tray` 启动后网络就绪时先完成一次认证，失败按原退避策略重试；成功之后要不要继续补登录才由重连开关决定
+- **密码保存失败不再被吞掉**：以前写失败也把内存缓存标成已保存，后续不再重试。现在返回结果、写日志，设置与密码都改成先写临时文件再替换，不会截断原文件
+- 配置文件被改坏时的兜底：空账号、非法出口枚举、越界的巡检间隔都回落到默认值
+- 托盘注册失败时保留可访问的窗口，重复的后台启动不唤出主窗口
+- 新增 `tests/StartupTests`、`tests/CredentialTests` 两套回归测试，`tools/build_release.ps1` 用同一份自包含目录产出安装版和便携版 ZIP，GitHub Actions 上跑测试并验证安装 / 启动 / 卸载
 
 ### 1.5.0
 

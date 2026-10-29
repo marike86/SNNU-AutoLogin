@@ -2,6 +2,7 @@
 [Bb]in/
 [Oo]bj/
 release/
+artifacts/
 installer/Output/
 
 # 本机用户配置

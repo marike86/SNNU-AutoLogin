@@ -300,7 +300,7 @@ public sealed partial class MainWindow : Window
 
     private void HideToTray()
     {
-        if (_rt.Tray is null) return;
+        if (_rt.Tray?.IsVisible != true) return;
 
         _hiddenToTray = true;
         _saveTimer.Stop();
@@ -318,7 +318,7 @@ public sealed partial class MainWindow : Window
 
         if (_rt.Exiting) return false;
         if (!_rt.Store.Settings.MinimizeToTray) return false;
-        if (_rt.Tray is null) return false;
+        if (_rt.Tray?.IsVisible != true) return false;
 
         HideToTray();
         return true;
@@ -434,6 +434,8 @@ public sealed partial class MainWindow : Window
 
     private void LoadSettingsToUi()
     {
+        bool ready = _uiReady;
+        _uiReady = false;
         var s = _rt.Store.Settings;
 
         AccountBox.Text = s.Account;
@@ -452,6 +454,7 @@ public sealed partial class MainWindow : Window
         SyncOperatorUi();
 
         SyncLegacyHostsBar();
+        _uiReady = ready;
     }
 
     private void FillLogsFromRuntime()
@@ -477,7 +480,11 @@ public sealed partial class MainWindow : Window
         AccountBox.TextChanged += (_, _) => ScheduleSave();
         PwdBox.PasswordChanged += (_, _) => ScheduleSave();
 
-        AutoStartSwitch.Toggled += (_, _) => ScheduleSave();
+        AutoStartSwitch.Toggled += (_, _) =>
+        {
+            if (!_uiReady) return;
+            PersistToStore();
+        };
         AutoReconnectSwitch.Toggled += (_, _) => ScheduleSave();
         LockKeepSwitch.Toggled += (_, _) =>
         {
@@ -961,18 +968,20 @@ public sealed partial class MainWindow : Window
         s.Account = AccountBox.Text.Trim();
         s.Operator = _operator;
         s.AutoReconnect = AutoReconnectSwitch.IsOn;
-        s.AutoStart = AutoStartSwitch.IsOn;
         s.MinimizeToTray = TraySwitch.IsOn;
         s.KeepAliveOnLock = LockKeepSwitch.IsOn;
 
         int idx = IntervalBox.SelectedIndex;
         s.CheckIntervalSeconds = (idx >= 0 && idx < Intervals.Length) ? Intervals[idx] : 8;
 
-        if (AutoStartSwitch.IsOn != StartupManager.IsEnabled())
-            StartupManager.SetEnabled(AutoStartSwitch.IsOn);
+        bool settingsSaved = _rt.Store.Save();
+        bool passwordSaved = _rt.Store.SavePassword(PwdBox.Password);
+        if (!settingsSaved || !passwordSaved)
+            _rt.AddLog("账号或密码保存失败，重启后可能丢失，请检查本地配置目录的写入权限");
 
-        _rt.Store.Save();
-        _rt.Store.SavePassword(PwdBox.Password);
+        if (AutoStartSwitch.IsOn != s.AutoStart
+            || AutoStartSwitch.IsOn != StartupManager.IsEnabled())
+            _rt.SetAutoStart(AutoStartSwitch.IsOn);
 
         UpdateAutoPill();
         _rt.ApplyLockPolicy();

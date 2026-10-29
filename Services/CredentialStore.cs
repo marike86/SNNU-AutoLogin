@@ -25,11 +25,15 @@ public sealed class CredentialStore
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("SNNU.AutoLogin.v1");
 
-    private static string Dir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SNNUAutoLogin");
+    private readonly string Dir;
 
-    private static string SettingsPath => Path.Combine(Dir, "settings.json");
-    private static string SecretPath => Path.Combine(Dir, "secret.bin");
+    private string SettingsPath => Path.Combine(Dir, "settings.json");
+    private string SecretPath => Path.Combine(Dir, "secret.bin");
+
+    public CredentialStore() : this(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SNNUAutoLogin")) { }
+
+    internal CredentialStore(string directory) => Dir = directory;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
@@ -40,6 +44,7 @@ public sealed class CredentialStore
     // 巡检每几秒就要读一次密码，DPAPI 解密 + 读盘没必要重复做，解密结果缓存在内存里
     private string? _pwdCache;
     private bool _pwdLoaded;
+    private bool _passwordDirty;
     private string _lastJson = "";
 
     public AppSettings Settings { get; private set; } = new();
@@ -54,6 +59,9 @@ public sealed class CredentialStore
                 var json = File.ReadAllText(SettingsPath, Encoding.UTF8);
                 var s = JsonSerializer.Deserialize<AppSettings>(json, JsonOpts);
                 if (s != null) Settings = s;
+                Settings.Account ??= "";
+                if (!Enum.IsDefined(Settings.Operator)) Settings.Operator = Operator.Mobile;
+                if (Settings.CheckIntervalSeconds is < 4 or > 120) Settings.CheckIntervalSeconds = 8;
                 _lastJson = json;
             }
         }
@@ -64,32 +72,35 @@ public sealed class CredentialStore
 
         _pwdCache = null;
         _pwdLoaded = false;
+        _passwordDirty = false;
     }
 
-    public void Save()
+    public bool Save()
     {
         try
         {
             if (!Directory.Exists(Dir)) Directory.CreateDirectory(Dir);
 
             var json = JsonSerializer.Serialize(Settings, JsonOpts);
-            if (json == _lastJson) return;   // 内容没变就不落盘
+            if (json == _lastJson) return true;   // 内容没变就不落盘
 
-            File.WriteAllText(SettingsPath, json, Encoding.UTF8);
+            WriteAtomically(SettingsPath, Encoding.UTF8.GetBytes(json));
             _lastJson = json;
+            return true;
         }
-        catch { /* 设置保存失败不影响主流程 */ }
+        catch { return false; }
     }
 
-    public void SavePassword(string? password)
+    public bool SavePassword(string? password)
     {
         password ??= "";
 
         // 与缓存一致说明没改过，跳过 DPAPI 加密与写盘（点「登录」时不再重复落盘）
-        if (_pwdLoaded && string.Equals(_pwdCache, password, StringComparison.Ordinal)) return;
+        if (_pwdLoaded && !_passwordDirty && string.Equals(_pwdCache, password, StringComparison.Ordinal)) return true;
 
         _pwdCache = password;
         _pwdLoaded = true;
+        _passwordDirty = true;
 
         try
         {
@@ -97,16 +108,22 @@ public sealed class CredentialStore
 
             if (password.Length == 0)
             {
-                if (File.Exists(SecretPath)) File.Delete(SecretPath);
-                return;
+                File.Delete(SecretPath);
+                _passwordDirty = false;
+                return true;
             }
 
             var data = Encoding.UTF8.GetBytes(password);
-            var cipher = ProtectedData.Protect(data, Entropy, DataProtectionScope.CurrentUser);
-            File.WriteAllBytes(SecretPath, cipher);
-            CryptographicOperations.ZeroMemory(data);
+            try
+            {
+                var cipher = ProtectedData.Protect(data, Entropy, DataProtectionScope.CurrentUser);
+                WriteAtomically(SecretPath, cipher);
+                _passwordDirty = false;
+                return true;
+            }
+            finally { CryptographicOperations.ZeroMemory(data); }
         }
-        catch { /* 忽略 */ }
+        catch { return false; }
     }
 
     /// <summary>读取密码（首次解密后缓存，后续调用为纯内存读取）。</summary>
@@ -136,4 +153,18 @@ public sealed class CredentialStore
     }
 
     public bool HasPassword => LoadPassword().Length > 0;
+
+    private static void WriteAtomically(string path, byte[] data)
+    {
+        string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllBytes(temporary, data);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
 }

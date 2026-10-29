@@ -18,19 +18,19 @@ public static class StartupManager
         }
     }
 
-    public static bool IsEnabled()
+    public static bool IsEnabled() => IsEnabled(ExePath, RunKey);
+
+    internal static bool IsEnabled(string executablePath, string runKey)
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RunKey, false);
+            using var key = Registry.CurrentUser.OpenSubKey(runKey, false);
             var v = key?.GetValue(ValueName) as string;
             if (string.IsNullOrEmpty(v)) return false;
 
             // 程序被移动过则视为失效，允许覆盖
-            var current = ExePath;
-            if (string.IsNullOrEmpty(current)) return true;
-            return v.Contains(current, StringComparison.OrdinalIgnoreCase)
-                || v.Contains(System.IO.Path.GetFileName(current), StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrEmpty(executablePath)
+                && string.Equals(v, Command(executablePath), StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
@@ -38,24 +38,27 @@ public static class StartupManager
         }
     }
 
-    public static bool SetEnabled(bool enabled)
+    private static string Command(string executablePath) => $"\"{executablePath}\" --tray";
+
+    public static bool SetEnabled(bool enabled) => SetEnabled(enabled, ExePath, RunKey);
+
+    internal static bool SetEnabled(bool enabled, string executablePath, string runKey)
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RunKey, true);
-            if (key == null) return false;
-
             if (enabled)
             {
-                var exe = ExePath;
-                if (string.IsNullOrEmpty(exe)) return false;
-                key.SetValue(ValueName, $"\"{exe}\" --tray", RegistryValueKind.String);
+                if (string.IsNullOrEmpty(executablePath)) return false;
+                using var key = Registry.CurrentUser.CreateSubKey(runKey, true);
+                if (key == null) return false;
+                key.SetValue(ValueName, Command(executablePath), RegistryValueKind.String);
             }
             else
             {
-                if (key.GetValue(ValueName) != null) key.DeleteValue(ValueName, false);
+                using var key = Registry.CurrentUser.OpenSubKey(runKey, true);
+                key?.DeleteValue(ValueName, false);
             }
-            return true;
+            return IsEnabled(executablePath, runKey) == enabled;
         }
         catch
         {

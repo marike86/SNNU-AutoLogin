@@ -62,16 +62,17 @@ public partial class App : Application
         if (!createdNew)
         {
             // 已有实例在跑（它的窗口可能已经被释放）：广播唤醒，然后静默退出
-            TrayIcon.BroadcastWake();
+            if (!Has("--tray")) TrayIcon.BroadcastWake();
             Exit();
             return;
         }
 
-        _runtime = new AppRuntime(DispatcherQueue.GetForCurrentThread());
+        _runtime = new AppRuntime(DispatcherQueue.GetForCurrentThread(), launchedAtStartup: Has("--tray"));
         _runtime.AttachTray();
 
         // --tray（开机自启路径）：完全不创建窗口，进程只跑托盘 + 巡检
-        if (!Has("--tray"))
+        // 托盘注册失败时退回带窗口的形态，否则程序没有任何入口可以找回
+        if (!Has("--tray") || _runtime.Tray?.IsVisible != true)
         {
             _runtime.ShowWindow();
 

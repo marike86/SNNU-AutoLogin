@@ -9,12 +9,14 @@
 
 #define AppName        "陕师大校园网自动登录"
 #define AppNameEn      "SNNUAutoLogin"
-#define AppVer         "1.5.0"
-#define AppVerFull     "1.5.0.0"
+#define AppVer         "1.5.1"
+#define AppVerFull     "1.5.1.0"
 #define AppExe         "SNNUAutoLogin.exe"
 #define AppPublisher   "SNNU"
 #define AppURL         "https://www.snnu.edu.cn"
-#define SrcDir         "..\release"
+#ifndef SrcDir
+  #define SrcDir       "..\release"
+#endif
 
 [Setup]
 ; AppId 决定「升级 / 修复 / 卸载」是否识别为同一个程序，一旦发布就不要改
@@ -246,7 +248,7 @@ begin
   if OldValue = '' then Exit;
 
   InstallExe := ExpandConstant('{app}\{#AppExe}');
-  if Pos(Lowercase(InstallExe), Lowercase(OldValue)) > 0 then Exit;
+  if CompareText('"' + InstallExe + '" --tray', OldValue) = 0 then Exit;
 
   RegWriteStringValue(HKCU, RunKey, RunValue, '"' + InstallExe + '" --tray');
 end;
