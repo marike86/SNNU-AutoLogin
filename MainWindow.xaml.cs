@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Reflection;
@@ -9,7 +10,9 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Dispatching;
+using Windows.Storage.Streams;
 using SNNUAutoLogin.Services;
 using Windows.Graphics;
 using Windows.UI;
@@ -27,6 +30,8 @@ public sealed partial class MainWindow : Window
     private readonly AppRuntime _rt;
     private readonly ThemeColors _theme;
     private readonly ObservableCollection<LogEntry> Logs = new();
+    private readonly Queue<LogEntry> _pendingLogs = new();
+    private DispatcherQueueTimer? _logFlush;
 
     private AppWindow? _appWindow;
     private WindowCloseHook? _closeHook;
@@ -37,6 +42,8 @@ public sealed partial class MainWindow : Window
     private bool _hiddenToTray;
     private bool _startHidden;
     private bool _logScrollQueued;
+    private bool _legacyDismissed;
+    private bool _legacyCleaning;
 
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(450) };
 
@@ -60,8 +67,10 @@ public sealed partial class MainWindow : Window
 
         _theme.Changed += OnThemeChanged;
         _rt.StateChanged += OnRuntimeState;
+        _rt.Coordinator.CaptchaChanged += OnCaptchaChanged;
         _rt.Logged += OnRuntimeLog;
         _rt.SettingsChanged += OnRuntimeSettings;
+        _rt.LegacyHostsChanged += OnLegacyHostsChanged;
 
         Activated += OnWindowActivated;
         Closed += OnClosed;
@@ -92,7 +101,7 @@ public sealed partial class MainWindow : Window
         if (scale <= 0) scale = 1.0;
 
         int targetW = (int)(1040 * scale);
-        int targetH = (int)(760 * scale);
+        int targetH = (int)(840 * scale);
 
         var area = DisplayArea.GetFromWindowId(id, DisplayAreaFallback.Primary);
         var work = area.WorkArea;
@@ -109,8 +118,7 @@ public sealed partial class MainWindow : Window
             try
             {
                 presenter.PreferredMinimumWidth = (int)(900 * scale);
-                presenter.PreferredMinimumHeight = (int)(620 * scale);
-            }
+                presenter.PreferredMinimumHeight = (int)(620 * scale);            }
             catch { }
         }
     }
@@ -193,6 +201,9 @@ public sealed partial class MainWindow : Window
         ApplyThemeColors();
         ApplyState(_rt.State, _rt.LastResult, animate: false);
 
+        // 重建窗口时验证码可能已经在了（从托盘召回的情形）
+        _ = SyncCaptchaAsync();
+
         FitToggleWidths();
         DispatcherQueue.TryEnqueue(FitToggleWidths);
     }
@@ -210,20 +221,21 @@ public sealed partial class MainWindow : Window
 
         try { LogList.ItemsSource = null; } catch { }
         Logs.Clear();
+        _pendingLogs.Clear();
+        _logFlush?.Stop();
+        _logFlush = null;
 
         Content = null;
         DropElementReferences();
 
-        // XAML 卸载有一部分是异步的，等一拍再回收
+        // XAML 卸载有一部分是异步的，等一拍再回收。
+        // 这里只调一次 Trim：它内部就是「两轮压缩式 GC + EmptyWorkingSet」，
+        // 以前外面再套一层 GC.Collect 等于每次关窗多做两次全堆回收（白卡一下）。
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
-            // 内容树里有大对象（xbf 解析缓冲、图片/文本排版），顺手压一次 LOH
             System.Runtime.GCSettings.LargeObjectHeapCompactionMode =
                 System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
 
-            GC.Collect(2, GCCollectionMode.Forced, true, true);
-            GC.WaitForPendingFinalizers();
-            GC.Collect(2, GCCollectionMode.Forced, true, true);
             MemoryOptimizer.Trim(force: true);
         });
     }
@@ -252,15 +264,19 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 首帧入场：和系统设置页一样，300ms、12px、每张卡错开 30ms。
+    /// 卡片多了不排队等，4 张以内刚好在 400ms 内全部到位。
+    /// </summary>
     private void PlayIntro()
     {
         if (!_uiBuilt) return;
 
-        Fx.FallIn(StatusCard, 0, 14, 460);
-        Fx.FallIn(LogCard, 40, 12, 440);
-        Fx.FallIn(AccountCard, 60, 12, 440);
-        Fx.FallIn(BehaviorCard, 110, 12, 440);
-        Fx.FallIn(AboutCard, 150, 12, 440);
+        Fx.FallIn(StatusCard, 0, 12, Fx.SlowMs);
+        Fx.FallIn(LogCard, 30, 12, Fx.SlowMs);
+        Fx.FallIn(AccountCard, 30, 12, Fx.SlowMs);
+        Fx.FallIn(BehaviorCard, 60, 12, Fx.SlowMs);
+        Fx.FallIn(AboutCard, 90, 12, Fx.SlowMs);
     }
 
     /// <summary>从托盘召回：内容树在就只显示，不在就重建后再显示。</summary>
@@ -361,19 +377,29 @@ public sealed partial class MainWindow : Window
             ConnState.Connecting => ("\uE895", true, _theme.Accent),
             ConnState.Offline => ("\uE7BA", false, _theme.Caution),
             ConnState.Failed => ("\uE783", false, _theme.Critical),
+            ConnState.CaptchaRequired => ("\uE8D7", false, _theme.Caution),
             ConnState.Checking => ("\uE72C", true, _theme.Neutral),
             _ => ("\uE7E8", false, _theme.Neutral)
         };
 
         var brush = BrushCache.Get(color);
+        bool glyphChanged = StateIcon.Glyph != glyph;
+
         StateIcon.Foreground = brush;
         StateIcon.Glyph = glyph;
         BusyRing.Foreground = brush;
-        HaloRing.Fill = BrushCache.Get(ThemeColors.WithAlpha(color, state == ConnState.Online ? 0.14 : 0.10));
+
+        // 忙碌时只留系统进度环，圆底收起来 —— 一个实心淡色圆盘垫在环后面更像"压了个饼"
+        double haloAlpha = state == ConnState.Online ? 0.14 : 0.10;
+        HaloRing.Fill = BrushCache.Get(ThemeColors.WithAlpha(color, haloAlpha));
+        HaloRing.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
 
         BusyRing.IsActive = busy;
         BusyRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         StateIcon.Visibility = busy ? Visibility.Collapsed : Visibility.Visible;
+
+        // 图标切换时弹一下，比硬换字形更容易被眼睛接住
+        if (glyphChanged && !busy) Fx.Pop(StateIcon, 0.9f, 280);
     }
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
@@ -415,6 +441,7 @@ public sealed partial class MainWindow : Window
         AutoStartSwitch.IsOn = s.AutoStart && StartupManager.IsEnabled();
         AutoReconnectSwitch.IsOn = s.AutoReconnect;
         TraySwitch.IsOn = s.MinimizeToTray;
+        LockKeepSwitch.IsOn = s.KeepAliveOnLock;
 
         IntervalBox.Items.Clear();
         foreach (var v in Intervals) IntervalBox.Items.Add($"{v} 秒");
@@ -423,6 +450,8 @@ public sealed partial class MainWindow : Window
 
         _operator = s.Operator;
         SyncOperatorUi();
+
+        SyncLegacyHostsBar();
     }
 
     private void FillLogsFromRuntime()
@@ -450,6 +479,11 @@ public sealed partial class MainWindow : Window
 
         AutoStartSwitch.Toggled += (_, _) => ScheduleSave();
         AutoReconnectSwitch.Toggled += (_, _) => ScheduleSave();
+        LockKeepSwitch.Toggled += (_, _) =>
+        {
+            ScheduleSave();
+            _rt.ApplyLockPolicy();   // 开关一动就生效，不用等下次锁屏
+        };
         TraySwitch.Toggled += (_, _) =>
         {
             ScheduleSave();
@@ -457,8 +491,27 @@ public sealed partial class MainWindow : Window
         };
         IntervalBox.SelectionChanged += (_, _) => ScheduleSave();
 
+        // 验证码：点按钮或直接回车提交
+        CaptchaSubmitBtn.Click += (_, _) => _ = SubmitCaptchaAsync();
+        CaptchaRefreshBtn.Click += (_, _) => _ = _rt.Coordinator.RefreshCaptchaAsync();
+        CaptchaBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Windows.System.VirtualKey.Enter) return;
+            e.Handled = true;
+            _ = SubmitCaptchaAsync();
+        };
+
         // 主按钮按下时轻微回弹（合成线程 Scale 通道，不参与布局）
         Fx.PressFeedback(ConnectBtn);
+        Fx.PressFeedback(CaptchaSubmitBtn);
+        Fx.PressFeedback(RefreshBtn);
+
+        LegacyCleanBtn.Click += (_, _) => OnLegacyCleanClicked();
+        LegacyDismissBtn.Click += (_, _) =>
+        {
+            _legacyDismissed = true;
+            Fx.Conceal(LegacyHostsBar);
+        };
 
         _uiReady = true;
     }
@@ -475,9 +528,36 @@ public sealed partial class MainWindow : Window
     {
         if (!_uiBuilt) return;
 
-        Logs.Add(new LogEntry { Time = DateTime.Now.ToString("HH:mm:ss"), Text = text });
-        while (Logs.Count > MaxLogLines) Logs.RemoveAt(0);
+        // 日志常常成串到来（网络变化 → 巡检 → 认证）。逐条插进 ItemsControl 会让
+        // 列表每次重排 + 播放过渡动画，肉眼就是「一顿一顿」。先攒在队列里，按帧合并。
+        _pendingLogs.Enqueue(new LogEntry { Time = DateTime.Now.ToString("HH:mm:ss"), Text = text });
 
+        _logFlush ??= DispatcherQueue.CreateTimer();
+        if (_logFlush.IsRunning) return;
+
+        _logFlush.Interval = TimeSpan.FromMilliseconds(90);
+        _logFlush.IsRepeating = false;
+        _logFlush.Tick += OnLogFlushTick;
+        _logFlush.Start();
+    }
+
+    private void OnLogFlushTick(DispatcherQueueTimer sender, object args)
+    {
+        sender.Stop();
+        _logFlush = null;
+
+        if (!_uiBuilt || _pendingLogs.Count == 0) return;
+
+        // 一次只补最需要的尾部若干条，避免积压时整表重排
+        int skip = Math.Max(0, _pendingLogs.Count - MaxLogLines);
+        while (_pendingLogs.Count > 0)
+        {
+            var e = _pendingLogs.Dequeue();
+            if (skip-- > 0) continue;
+            Logs.Add(e);
+        }
+
+        while (Logs.Count > MaxLogLines) Logs.RemoveAt(0);
         ScrollLogToEnd();
     }
 
@@ -512,7 +592,7 @@ public sealed partial class MainWindow : Window
     {
         if (!_uiBuilt) return;
 
-        foreach (var sw in new[] { AutoStartSwitch, AutoReconnectSwitch, TraySwitch })
+        foreach (var sw in new[] { AutoStartSwitch, AutoReconnectSwitch, TraySwitch, LockKeepSwitch })
         {
             if (sw is null) continue;
 
@@ -541,7 +621,6 @@ public sealed partial class MainWindow : Window
     {
         if (!_uiBuilt) return;
 
-        bool changed = state != _lastState;
         _lastState = state;
 
         string title;
@@ -578,6 +657,11 @@ public sealed partial class MainWindow : Window
                 subtitle = result?.Message is { Length: > 0 } fm && fm != "未认证" ? fm : "请检查账号密码或网络环境";
                 break;
 
+            case ConnState.CaptchaRequired:
+                title = "需要验证码";
+                subtitle = result?.Message is { Length: > 0 } cm ? cm : "请在下方输入图片验证码";
+                break;
+
             case ConnState.Checking:
                 title = "正在检测";
                 subtitle = "正在检测出口认证状态…";
@@ -591,20 +675,9 @@ public sealed partial class MainWindow : Window
 
         RepaintState(state);
 
-        if (changed)
-        {
-            StateTitle.Text = title;
-            StateSubtitle.Text = subtitle;
-            if (animate)
-            {
-                Fx.FallIn(StateTitle, 0, 6, 240);
-                Fx.FallIn(StateSubtitle, 26, 4, 240);
-            }
-        }
-        else
-        {
-            StateSubtitle.Text = subtitle;
-        }
+        // 文字变化走交叉淡入：状态在「正在登录 → 已连接」之间跳变时不会硬切一下
+        Fx.SwapText(StateTitle, title, animate);
+        Fx.SwapText(StateSubtitle, subtitle, animate, 4f, 200);
 
         if (state == ConnState.Connecting)
         {
@@ -628,6 +701,7 @@ public sealed partial class MainWindow : Window
             ConnState.Online => _theme.Success,
             ConnState.Failed => _theme.Critical,
             ConnState.Offline => _theme.Caution,
+            ConnState.CaptchaRequired => _theme.Caution,
             ConnState.Connecting => _theme.Accent,
             _ => _theme.Neutral
         });
@@ -645,6 +719,157 @@ public sealed partial class MainWindow : Window
     }
 
     // ────────────────────────── 交互 ──────────────────────────
+
+    // ────────────────────────── 旧版 hosts 残留 ──────────────────────────
+
+    private void OnLegacyHostsChanged()
+    {
+        if (!_uiBuilt) return;
+        SyncLegacyHostsBar();
+    }
+
+    /// <summary>只在检测到旧标记块时显示提示条；用户手动关掉后本次运行不再弹。</summary>
+    private void SyncLegacyHostsBar()
+    {
+        if (!_uiBuilt || _legacyCleaning) return;
+
+        if (!_rt.HasLegacyHosts || _legacyDismissed)
+        {
+            if (LegacyHostsBar.Visibility == Visibility.Visible) Fx.Conceal(LegacyHostsBar);
+            return;
+        }
+
+        LegacyHostsText.Text = _rt.LegacyHostsEntries > 0
+            ? $"旧版「网络加速」留下 {_rt.LegacyHostsEntries} 条 hosts 记录，可还原为系统默认解析。"
+            : "旧版「网络加速」改过系统解析，可还原为系统默认。";
+
+        LegacyCleanBtn.Content = "还原解析";
+        LegacyCleanBtn.IsEnabled = true;
+        LegacyCleanBtn.Visibility = Visibility.Visible;
+
+        if (LegacyHostsBar.Visibility != Visibility.Visible)
+            Fx.Reveal(LegacyHostsBar, 6f, Fx.NormalMs);
+    }
+
+    private async void OnLegacyCleanClicked()
+    {
+        if (_legacyCleaning) return;
+
+        _legacyCleaning = true;
+        LegacyCleanBtn.IsEnabled = false;
+        LegacyCleanBtn.Content = "还原中…";
+        LegacyHostsText.Text = "正在还原系统 hosts，会请求一次管理员授权…";
+
+        try
+        {
+            var r = await _rt.CleanLegacyHostsAsync();
+            if (!_uiBuilt) return;
+
+            if (r.Status is HostsCleanStatus.Cleaned or HostsCleanStatus.NothingToDo)
+            {
+                LegacyHostsText.Text = r.Message;
+                LegacyCleanBtn.Visibility = Visibility.Collapsed;
+
+                await Task.Delay(2200);
+                if (!_uiBuilt) return;
+                Fx.Conceal(LegacyHostsBar);
+            }
+            else
+            {
+                LegacyHostsText.Text = r.Message;
+                LegacyCleanBtn.Content = "重试";
+                LegacyCleanBtn.IsEnabled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            LegacyHostsText.Text = "还原失败：" + ex.Message;
+            LegacyCleanBtn.Content = "重试";
+            LegacyCleanBtn.IsEnabled = true;
+        }
+        finally
+        {
+            _legacyCleaning = false;
+        }
+    }
+
+    // ────────────────────────── 验证码 ──────────────────────────
+
+    private void OnCaptchaChanged()
+    {
+        if (!_uiBuilt) return;
+        _ = SyncCaptchaAsync();
+    }
+
+    private async Task SyncCaptchaAsync()
+    {
+        if (!_uiBuilt) return;
+
+        CaptchaSubmitBtn.IsEnabled = true;
+        var captcha = _rt.Coordinator.PendingCaptcha;
+
+        if (captcha is null)
+        {
+            Fx.Conceal(CaptchaPanel, Fx.FastMs);
+            CaptchaPic.Source = null;
+            return;
+        }
+
+        Fx.Reveal(CaptchaPanel);
+        CaptchaHint.Text = string.IsNullOrWhiteSpace(captcha.Hint) ? "按图输入后按回车" : captcha.Hint;
+
+        await SetCaptchaImageAsync(captcha.Bytes);
+
+        CaptchaBox.Text = "";
+        CaptchaBox.Focus(FocusState.Programmatic);
+    }
+
+    private async Task SetCaptchaImageAsync(byte[] bytes)
+    {
+        try
+        {
+            using var stream = new InMemoryRandomAccessStream();
+            using (var writer = new DataWriter(stream))
+            {
+                writer.WriteBytes(bytes);
+                await writer.StoreAsync();
+                await writer.FlushAsync();
+                writer.DetachStream();
+            }
+
+            stream.Seek(0);
+
+            var bitmap = new BitmapImage();
+            await bitmap.SetSourceAsync(stream);
+            CaptchaPic.Source = bitmap;
+        }
+        catch
+        {
+            CaptchaPic.Source = null;
+        }
+    }
+
+    private async Task SubmitCaptchaAsync()
+    {
+        var code = CaptchaBox.Text.Trim();
+        if (code.Length == 0)
+        {
+            CaptchaHint.Text = "还没填验证码";
+            CaptchaBox.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        CaptchaSubmitBtn.IsEnabled = false;
+        try
+        {
+            PersistToStore();
+            await _rt.Coordinator.SubmitCaptchaAsync(code);
+        }
+        finally
+        {
+            CaptchaSubmitBtn.IsEnabled = true;
+        }
+    }
 
     private async Task OnConnectClicked()
     {
@@ -738,6 +963,7 @@ public sealed partial class MainWindow : Window
         s.AutoReconnect = AutoReconnectSwitch.IsOn;
         s.AutoStart = AutoStartSwitch.IsOn;
         s.MinimizeToTray = TraySwitch.IsOn;
+        s.KeepAliveOnLock = LockKeepSwitch.IsOn;
 
         int idx = IntervalBox.SelectedIndex;
         s.CheckIntervalSeconds = (idx >= 0 && idx < Intervals.Length) ? Intervals[idx] : 8;
@@ -749,6 +975,7 @@ public sealed partial class MainWindow : Window
         _rt.Store.SavePassword(PwdBox.Password);
 
         UpdateAutoPill();
+        _rt.ApplyLockPolicy();
         _rt.RefreshTray();
     }
 
@@ -763,6 +990,8 @@ public sealed partial class MainWindow : Window
         _rt.StateChanged -= OnRuntimeState;
         _rt.Logged -= OnRuntimeLog;
         _rt.SettingsChanged -= OnRuntimeSettings;
+        _rt.LegacyHostsChanged -= OnLegacyHostsChanged;
+        _rt.Coordinator.CaptchaChanged -= OnCaptchaChanged;
 
         _closeHook?.Dispose();
         _closeHook = null;

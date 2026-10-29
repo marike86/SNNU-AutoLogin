@@ -49,6 +49,14 @@ public partial class App : Application
             return;
         }
 
+        // 登录页解析自检（不联网）：确认验证码字段/图片/表单地址认得出来
+        if (Has("--login-selftest"))
+        {
+            Services.LoginSelfTest.Run();
+            Exit();
+            return;
+        }
+
         // 单实例：两个进程同时认证会互相把对方踢下线
         _singleInstance = new Mutex(true, @"Local\SNNUAutoLogin.SingleInstance", out bool createdNew);
         if (!createdNew)
@@ -64,7 +72,17 @@ public partial class App : Application
 
         // --tray（开机自启路径）：完全不创建窗口，进程只跑托盘 + 巡检
         if (!Has("--tray"))
+        {
             _runtime.ShowWindow();
+
+            // 首帧先出：巡检线程、网络事件订阅、托盘状态写入都放到下一轮低优先级，
+            // 窗口不会因为「启动时同时干活」而晚 100~200ms 才画出来。
+            var dq = DispatcherQueue.GetForCurrentThread();
+            if (dq is not null) dq.TryEnqueue(DispatcherQueuePriority.Low, _runtime.Start);
+            else _runtime.Start();
+
+            return;
+        }
 
         _runtime.Start();
     }

@@ -13,6 +13,10 @@ public sealed class AppSettings
     public bool AutoStart { get; set; } = true;
     public bool AutoReconnect { get; set; } = true;
     public bool MinimizeToTray { get; set; } = true;
+
+    /// <summary>锁屏时保持在线：阻止系统因空闲进入睡眠，并在解锁 / 唤醒后立刻补认证。</summary>
+    public bool KeepAliveOnLock { get; set; } = true;
+
     public int CheckIntervalSeconds { get; set; } = 8;
 }
 

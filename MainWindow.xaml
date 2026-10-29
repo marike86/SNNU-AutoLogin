@@ -256,7 +256,7 @@
                             Grid.Row="2"
                             Margin="0,18,0,0"
                             Spacing="0">
-                            <Grid Height="32">
+                            <Grid Height="30">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -276,7 +276,7 @@
 
                             <Border Style="{StaticResource DividerStyle}" />
 
-                            <Grid Height="32">
+                            <Grid Height="30">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -393,10 +393,70 @@
 
             <!--  ────────── 右：设置  ──────────  -->
             <ScrollViewer
+                x:Name="SettingsScroll"
                 Grid.Column="1"
                 Padding="0,0,0,0"
                 VerticalScrollBarVisibility="Auto">
-                <StackPanel Spacing="12">
+                <StackPanel x:Name="SettingsPanel" Spacing="12">
+
+                    <!--  1.4.0 起移除了网络加速：只在检测到旧版残留时出现，一键还原  -->
+                    <Border
+                        x:Name="LegacyHostsBar"
+                        Padding="14,9,8,9"
+                        Background="{ThemeResource SystemFillColorAttentionBackgroundBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Visibility="Collapsed">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <FontIcon
+                                FontSize="14"
+                                Foreground="{ThemeResource SystemFillColorAttentionBrush}"
+                                Glyph="&#xE946;"
+                                VerticalAlignment="Center" />
+
+                            <TextBlock
+                                x:Name="LegacyHostsText"
+                                Grid.Column="1"
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                TextWrapping="Wrap" />
+
+                            <Button
+                                x:Name="LegacyCleanBtn"
+                                Grid.Column="2"
+                                Height="28"
+                                Padding="12,0"
+                                VerticalAlignment="Center"
+                                Content="还原解析"
+                                FontSize="12"
+                                Style="{StaticResource AccentButtonStyle}" />
+
+                            <Button
+                                x:Name="LegacyDismissBtn"
+                                Grid.Column="3"
+                                Width="28"
+                                Height="28"
+                                Padding="0"
+                                VerticalAlignment="Center"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                ToolTipService.ToolTip="本次不再提示">
+                                <FontIcon
+                                    FontSize="11"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    Glyph="&#xE711;" />
+                            </Button>
+                        </Grid>
+                    </Border>
 
                     <!--  账号与出口  -->
                     <Border x:Name="AccountCard" Style="{StaticResource CardStyle}">
@@ -476,6 +536,70 @@
                                 Margin="0,8,0,0"
                                 Style="{StaticResource HintStyle}"
                                 Text="校园网为校内直连出口；移动 / 联通 / 电信为运营商代拨出口。" />
+
+                            <!--  验证码：只在 Portal 要求时出现  -->
+                            <StackPanel
+                                x:Name="CaptchaPanel"
+                                Margin="0,4,0,0"
+                                Spacing="6"
+                                Visibility="Collapsed">
+                                <Border Style="{StaticResource DividerStyle}" />
+
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                                        <TextBlock Style="{StaticResource RowTitleStyle}" Text="验证码" />
+                                        <TextBlock
+                                            x:Name="CaptchaHint"
+                                            Style="{StaticResource RowDescStyle}"
+                                            Text="按图输入后按回车" />
+                                    </StackPanel>
+                                    <Button
+                                        x:Name="CaptchaRefreshBtn"
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        Content="换一张" />
+                                </Grid>
+
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Border
+                                        Width="112"
+                                        Height="40"
+                                        Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4">
+                                        <Image
+                                            x:Name="CaptchaPic"
+                                            Margin="3"
+                                            Stretch="Uniform" />
+                                    </Border>
+
+                                    <TextBox
+                                        x:Name="CaptchaBox"
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        FontFamily="Consolas, Microsoft YaHei UI"
+                                        MaxLength="8"
+                                        PlaceholderText="输入图片中的字符" />
+
+                                    <Button
+                                        x:Name="CaptchaSubmitBtn"
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        Content="验证并登录"
+                                        Style="{ThemeResource AccentButtonStyle}" />
+                                </Grid>
+                            </StackPanel>
                         </StackPanel>
                     </Border>
 
@@ -490,7 +614,7 @@
                                 <TextBlock Style="{StaticResource CardTitleStyle}" Text="自动化" />
                             </StackPanel>
 
-                            <Grid MinHeight="44">
+                            <Grid MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -507,7 +631,7 @@
 
                             <Border Style="{StaticResource DividerStyle}" />
 
-                            <Grid MinHeight="44">
+                            <Grid MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -524,7 +648,24 @@
 
                             <Border Style="{StaticResource DividerStyle}" />
 
-                            <Grid MinHeight="44">
+                            <Grid MinHeight="42">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock Style="{StaticResource RowTitleStyle}" Text="锁屏保持连接" />
+                                    <TextBlock Style="{StaticResource RowDescStyle}" Text="锁屏后暂不睡眠，认证会话不断" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    x:Name="LockKeepSwitch"
+                                    Grid.Column="1"
+                                    Style="{StaticResource RowToggleStyle}" />
+                            </Grid>
+
+                            <Border Style="{StaticResource DividerStyle}" />
+
+                            <Grid MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -541,7 +682,7 @@
 
                             <Border Style="{StaticResource DividerStyle}" />
 
-                            <Grid MinHeight="44">
+                            <Grid MinHeight="42">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
@@ -570,7 +711,7 @@
                                 <TextBlock Style="{StaticResource CardTitleStyle}" Text="关于" />
                             </StackPanel>
 
-                            <Grid Height="32">
+                            <Grid Height="30">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -589,7 +730,7 @@
 
                             <Border Style="{StaticResource DividerStyle}" />
 
-                            <Grid Height="32">
+                            <Grid Height="30">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
@@ -608,7 +749,7 @@
 
                             <Border Style="{StaticResource DividerStyle}" />
 
-                            <Grid Height="32">
+                            <Grid Height="30">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />

@@ -27,6 +27,8 @@ public sealed class AppRuntime : IDisposable
 
     private MainWindow? _window;
     private NetworkWatch? _netWatch;
+    private SessionGuard? _session;
+    private readonly StayAwake _stayAwake = new();
     private bool _disposed;
 
     public static AppRuntime? Current { get; private set; }
@@ -36,6 +38,9 @@ public sealed class AppRuntime : IDisposable
     public LoginCoordinator Coordinator { get; }
     public DispatcherQueue Dispatcher { get; }
     public TrayIcon? Tray { get; private set; }
+
+    /// <summary>旧版本「网络加速」在系统 hosts 里留下的标记块是否还在。</summary>
+    public bool HasLegacyHosts { get; private set; }
 
     public ConnState State { get; private set; } = ConnState.Idle;
     public LoginResult? LastResult { get; private set; }
@@ -50,6 +55,9 @@ public sealed class AppRuntime : IDisposable
     /// <summary>托盘菜单里改了配置（窗口若开着需要回读）。</summary>
     public event Action? SettingsChanged;
 
+    /// <summary>旧 hosts 残留状态变化（清理完成后界面收起提示条）。</summary>
+    public event Action? LegacyHostsChanged;
+
     public AppRuntime(DispatcherQueue dispatcher)
     {
         Current = this;
@@ -58,11 +66,13 @@ public sealed class AppRuntime : IDisposable
         Store.Load();
 
         Theme = new ThemeColors(dispatcher);
-        Theme.Changed += () => { };
 
         Coordinator = new LoginCoordinator(Store, dispatcher);
         Coordinator.StateChanged += OnStateChanged;
         Coordinator.Log += AddLog;
+
+        HasLegacyHosts = HostsCleanup.HasLegacyBlock();
+        LegacyHostsEntries = HasLegacyHosts ? HostsCleanup.CountLegacyEntries() : 0;
 
         AddLog("程序启动");
         AddLog(Store.Settings.AutoStart && StartupManager.IsEnabled()
@@ -155,6 +165,7 @@ public sealed class AppRuntime : IDisposable
     public void Start()
     {
         Coordinator.Start();
+        StartSessionWatch();
 
         // 网络一通（重连 Wi-Fi、换网、休眠唤醒）就立刻补一次认证，不等下一个轮询周期
         _netWatch = new NetworkWatch(Dispatcher, () =>
@@ -164,10 +175,99 @@ public sealed class AppRuntime : IDisposable
         });
         _netWatch.Start();
 
-        // 启动期的临时分配已无用，20 秒后归还一次未使用页面
-        _ = Task.Delay(20000).ContinueWith(_ => MemoryOptimizer.Trim(force: true),
+        // 启动期的临时分配（XAML 解析、字体排版、图标解码）用完就没价值了。
+        // 6 秒后先归还一次，25 秒后再收一次尾 —— 以前只等 20 秒，任务管理器里
+        // 前 20 秒一直挂着 170MB，看起来像是内存泄漏。
+        _ = Task.Delay(6000).ContinueWith(_ => MemoryOptimizer.Trim(force: true),
+            TaskScheduler.Default);
+        _ = Task.Delay(25000).ContinueWith(_ => MemoryOptimizer.Trim(force: true),
             TaskScheduler.Default);
     }
+
+    // ────────────────────────── 锁屏保持 ──────────────────────────
+
+    /// <summary>当前是否处于锁屏状态（开机自启无窗口时同样有效）。</summary>
+    public bool IsSessionLocked => _session?.IsLocked == true;
+
+    /// <summary>WTS 会话通知是否注册成功。</summary>
+    public bool SessionWatchAvailable => _session?.Available == true;
+
+    /// <summary>是否正持有「系统不睡眠」的请求，界面与自检用。</summary>
+    public bool StayAwakeActive => _stayAwake.Active;
+
+    /// <summary>最近一次申领的 Win32 返回值（0 表示失败），自检用。</summary>
+    public uint StayAwakeResult => _stayAwake.LastResult;
+
+    /// <summary>最近一次实际提交的 ES_* 标志位，自检用。</summary>
+    public uint StayAwakeApplied => _stayAwake.LastApplied;
+
+    private void StartSessionWatch()
+    {
+        if (_session is not null) return;
+
+        try
+        {
+            _stayAwake.Start();
+
+            _session = new SessionGuard();
+            _session.LockChanged += locked => Dispatcher.TryEnqueue(() => OnSessionLockChanged(locked));
+            _session.Resumed += () => Dispatcher.TryEnqueue(OnSystemResumed);
+            _session.Start();
+
+            if (!_session.Available)
+                AddLog("锁屏监听未注册成功，锁屏保持可能不生效");
+            else if (Store.Settings.KeepAliveOnLock)
+                AddLog("锁屏保持已开启");
+
+            ApplyLockPolicy();
+        }
+        catch (Exception ex)
+        {
+            AddLog($"锁屏监听启动失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>按「设置开关 + 当前锁屏状态」决定是否让系统保持运行。</summary>
+    public void ApplyLockPolicy()
+    {
+        if (_disposed) return;
+
+        bool hold = Store.Settings.KeepAliveOnLock && IsSessionLocked;
+        _stayAwake.Set(hold);
+    }
+
+    private void OnSessionLockChanged(bool locked)
+    {
+        ApplyLockPolicy();
+
+        if (locked)
+        {
+            AddLog(Store.Settings.KeepAliveOnLock
+                ? "已锁屏：保持认证在线，系统暂不睡眠"
+                : "已锁屏：按系统电源策略处理");
+        }
+        else
+        {
+            AddLog("已解锁：恢复系统电源策略");
+
+            // 锁屏期间如果 Portal 要验证码，界面上是看不见的，解锁后再把窗口叫回来
+            if (Coordinator.State == ConnState.CaptchaRequired) ShowWindow();
+        }
+
+        // 锁屏 / 解锁各确认一次认证状态，避免正好卡在掉线的空档里
+        Coordinator.RequestImmediateCheck();
+    }
+
+    private void OnSystemResumed()
+    {
+        // 睡眠会丢掉执行状态请求，醒来先重新申领，再立刻补一次认证
+        _stayAwake.Reassert();
+        AddLog("系统从睡眠恢复，重新检测认证状态");
+        Coordinator.RequestImmediateCheck();
+    }
+
+    /// <summary>开发自检：模拟一次锁屏 / 解锁，走真实事件的同一处理路径。</summary>
+    internal void SimulateSessionLock(bool locked) => _session?.SimulateLock(locked);
 
     private void OnStateChanged(ConnState state, LoginResult? result)
     {
@@ -176,12 +276,19 @@ public sealed class AppRuntime : IDisposable
         StateLabel = LabelOf(state);
 
         Tray?.UpdateTip($"校园网自动登录 · {StateLabel}");
+
+        // 要验证码就得有人看着：把窗口叫回来（驻留托盘时也算）。
+        // 锁屏时叫了也看不见，等解锁时再召回。
+        if (state == ConnState.CaptchaRequired && !IsSessionLocked)
+            Dispatcher.TryEnqueue(ShowWindow);
+
         StateChanged?.Invoke(state, result);
     }
 
     public static string LabelOf(ConnState s) => s switch
     {
         ConnState.Online => "已连接",
+        ConnState.CaptchaRequired => "需要验证码",
         ConnState.Connecting => "正在登录",
         ConnState.Offline => "未登录",
         ConnState.Failed => "登录失败",
@@ -199,7 +306,52 @@ public sealed class AppRuntime : IDisposable
             if (_logs.Count > MaxLogLines) _logs.RemoveRange(0, _logs.Count - MaxLogLines);
         }
 
-        Logged?.Invoke(text);
+        // 调用方可能在后台线程（加速服务的测速/写入都在线程池里），
+        // 而日志最终会写进绑定 ListView 的 ObservableCollection —— 必须在 UI 线程触发。
+        if (Dispatcher.HasThreadAccess)
+        {
+            try { Logged?.Invoke(text); } catch { }
+        }
+        else
+        {
+            Dispatcher.TryEnqueue(() =>
+            {
+                try { Logged?.Invoke(text); } catch { }
+            });
+        }
+    }
+
+    // ────────────────────────── 旧版 hosts 残留 ──────────────────────────
+
+    /// <summary>旧标记块里的记录条数，用于提示文案（启动时算一次）。</summary>
+    public int LegacyHostsEntries { get; private set; }
+
+    /// <summary>
+    /// 把旧版本写进 hosts 的标记块删掉。需要管理员权限，会弹一次 UAC。
+    /// 成功后清掉标记，界面据此收起提示条。
+    /// </summary>
+    public async Task<HostsCleanResult> CleanLegacyHostsAsync()
+    {
+        if (!HasLegacyHosts)
+            return new(HostsCleanStatus.NothingToDo, 0, "没有需要还原的条目");
+
+        AddLog("正在还原系统 hosts（需要管理员权限）…");
+
+        var r = await HostsCleanup.RemoveAsync(
+            onElevating: () => AddLog("等待管理员授权…")).ConfigureAwait(false);
+
+        if (r.Status is HostsCleanStatus.Cleaned or HostsCleanStatus.NothingToDo)
+        {
+            HasLegacyHosts = false;
+            LegacyHostsEntries = 0;
+            Dispatcher.TryEnqueue(() =>
+            {
+                try { LegacyHostsChanged?.Invoke(); } catch { }
+            });
+        }
+
+        AddLog(r.Message);
+        return r;
     }
 
     // ────────────────────────── 窗口生命周期 ──────────────────────────
@@ -233,6 +385,10 @@ public sealed class AppRuntime : IDisposable
         Tray?.Dispose();
         Tray = null;
 
+        // 退出前把「不睡眠」的申领撤掉。这里只撤销请求，不做整体 Dispose：
+        // 关窗回调还会再走一次 PersistToStore，把已经释放的等待句柄重新 Set 会抛异常。
+        _stayAwake.Set(false);
+
         try { Application.Current.Exit(); } catch { }
     }
 
@@ -243,6 +399,10 @@ public sealed class AppRuntime : IDisposable
 
         _netWatch?.Dispose();
         _netWatch = null;
+
+        _stayAwake.Dispose();
+        _session?.Dispose();
+        _session = null;
 
         Coordinator.Dispose();
         Theme.Dispose();

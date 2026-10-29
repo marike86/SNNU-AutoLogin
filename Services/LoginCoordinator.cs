@@ -12,7 +12,10 @@ public enum ConnState
     Online,
     Offline,
     Connecting,
-    Failed
+    Failed,
+
+    /// <summary>Portal 要求图形验证码，等用户在界面上输入。</summary>
+    CaptchaRequired
 }
 
 /// <summary>连接状态机：定时巡检出口认证状态，掉线自动重新登录，开机网络未就绪时指数退避。</summary>
@@ -36,6 +39,11 @@ public sealed class LoginCoordinator : IDisposable
     private TaskCompletionSource<object?>? _wake;
 
     public ConnState State { get; private set; } = ConnState.Idle;
+
+    /// <summary>待输入的验证码图片；为空表示当前不需要验证码。</summary>
+    public CaptchaImage? PendingCaptcha { get; private set; }
+
+    private bool _awaitingCaptcha;
     public LoginResult? LastResult { get; private set; }
     public DateTime? LastCheckAt { get; private set; }
 
@@ -44,6 +52,9 @@ public sealed class LoginCoordinator : IDisposable
 
     public event Action<ConnState, LoginResult?>? StateChanged;
     public event Action<string>? Log;
+
+    /// <summary>验证码图片变化（到达 / 刷新 / 清除）。</summary>
+    public event Action? CaptchaChanged;
 
     public LoginCoordinator(CredentialStore store, DispatcherQueue dispatcher)
     {
@@ -197,6 +208,7 @@ public sealed class LoginCoordinator : IDisposable
             if (status.Success)
             {
                 NoteIdleReason(null);
+                if (_awaitingCaptcha) ClearCaptcha();   // 用户在浏览器里登上了，面板该收起来
                 SetState(ConnState.Online, status);
                 return (true, false);
             }
@@ -209,6 +221,13 @@ public sealed class LoginCoordinator : IDisposable
                 NoteIdleReason("portal");
                 SetState(ConnState.Failed, status);
                 return (false, true);
+            }
+
+            // 已经在等用户填验证码：别再自动提交，否则会把用户手里的验证码刷掉
+            if (_awaitingCaptcha)
+            {
+                SetState(ConnState.CaptchaRequired, LastResult);
+                return (true, false);
             }
 
             // 离线：是否允许自动登录
@@ -230,8 +249,15 @@ public sealed class LoginCoordinator : IDisposable
             var r = await _client.LoginAsync(account, password, _store.Settings.Operator, ct).ConfigureAwait(false);
             if (r.Success)
             {
+                ClearCaptcha();
                 SetState(ConnState.Online, r);
                 LogLine($"登录成功 · {r.Account ?? account} · {r.Ip ?? "IP 未知"}");
+                return (true, false);
+            }
+
+            if (r.NeedCaptcha)
+            {
+                await EnterCaptchaAsync(r, ct).ConfigureAwait(false);
                 return (true, false);
             }
 
@@ -279,8 +305,13 @@ public sealed class LoginCoordinator : IDisposable
             if (r.Success)
             {
                 _failures = 0;
+                ClearCaptcha();
                 SetState(ConnState.Online, r);
                 LogLine(r.AlreadyOnline ? "当前已在线" : $"登录成功 · {r.Account ?? account} · {r.Ip ?? "IP 未知"}");
+            }
+            else if (r.NeedCaptcha)
+            {
+                await EnterCaptchaAsync(r, CancellationToken.None).ConfigureAwait(false);
             }
             else
             {
@@ -292,6 +323,119 @@ public sealed class LoginCoordinator : IDisposable
         {
             _gate.Release();
         }
+    }
+
+    // ────────────────────────── 图形验证码 ──────────────────────────
+
+    /// <summary>取一张验证码并切到「等输入」状态。</summary>
+    private async Task EnterCaptchaAsync(LoginResult r, CancellationToken ct)
+    {
+        _awaitingCaptcha = true;
+        LastResult = r;
+
+        try
+        {
+            PendingCaptcha = await _client.FetchCaptchaAsync(ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            PendingCaptcha = null;
+        }
+
+        LogLine(PendingCaptcha is null
+            ? "Portal 要求验证码，但没能取到图片"
+            : "Portal 要求输入验证码，请在窗口里填写");
+
+        SetState(ConnState.CaptchaRequired, r);
+        PushCaptcha();
+    }
+
+    /// <summary>提交用户输入的验证码。</summary>
+    public async Task<LoginResult> SubmitCaptchaAsync(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+            return LoginResult.Captcha("请输入验证码");
+
+        var account = _store.Settings.Account;
+        var password = _store.LoadPassword();
+
+        if (string.IsNullOrWhiteSpace(account) || string.IsNullOrEmpty(password))
+            return LoginResult.Fail("请先填写账号与密码");
+
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SetState(ConnState.Connecting, null);
+            LogLine("正在提交验证码…");
+
+            var r = await _client
+                .LoginAsync(account, password, _store.Settings.Operator, code.Trim())
+                .ConfigureAwait(false);
+
+            if (r.Success)
+            {
+                _failures = 0;
+                ClearCaptcha();
+                SetState(ConnState.Online, r);
+                LogLine($"登录成功 · {r.Account ?? account} · {r.Ip ?? "IP 未知"}");
+                return r;
+            }
+
+            if (r.NeedCaptcha)
+            {
+                // 码错/过期：换一张，继续等输入
+                _awaitingCaptcha = true;
+                try { PendingCaptcha = await _client.FetchCaptchaAsync().ConfigureAwait(false); }
+                catch { PendingCaptcha = null; }
+
+                SetState(ConnState.CaptchaRequired, r);
+                PushCaptcha();
+                LogLine($"验证码未通过：{r.Message}");
+                return r;
+            }
+
+            ClearCaptcha();
+            SetState(ConnState.Failed, r);
+            LogLine($"登录失败：{r.Message}");
+            return r;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>开发自检用：直接塞一张验证码进来，看界面表现（不联网）。</summary>
+    internal void InjectCaptchaForTest(byte[] png)
+    {
+        _awaitingCaptcha = true;
+        PendingCaptcha = new CaptchaImage(png, "演示：按图输入后回车");
+        SetState(ConnState.CaptchaRequired, LoginResult.Captcha("本次登录需要输入图片验证码"));
+        PushCaptcha();
+    }
+
+    /// <summary>换一张验证码。</summary>
+    public async Task RefreshCaptchaAsync()
+    {
+        if (!_awaitingCaptcha && State != ConnState.CaptchaRequired) return;
+
+        try
+        {
+            PendingCaptcha = await _client.FetchCaptchaAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            PendingCaptcha = null;
+        }
+
+        PushCaptcha();
+    }
+
+    private void ClearCaptcha()
+    {
+        _awaitingCaptcha = false;
+        PendingCaptcha = null;
+        PushCaptcha();
     }
 
     /// <summary>配置变更后立即重新巡检一次。</summary>
@@ -325,6 +469,11 @@ public sealed class LoginCoordinator : IDisposable
     }
 
     private void LogLine(string text) => _dispatcher.TryEnqueue(() => Log?.Invoke(text));
+
+    private void PushCaptcha() => _dispatcher.TryEnqueue(() =>
+    {
+        try { CaptchaChanged?.Invoke(); } catch { }
+    });
 
     public void Dispose()
     {

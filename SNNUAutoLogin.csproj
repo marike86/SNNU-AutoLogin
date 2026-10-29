@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -20,9 +20,9 @@
     <EnableMsixTooling>true</EnableMsixTooling>
 
     <!-- 文件属性（exe 右键「属性 → 详细信息」与「应用和功能」列表里显示的内容） -->
-    <Version>1.2.0</Version>
-    <FileVersion>1.2.0.0</FileVersion>
-    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <Version>1.5.0</Version>
+    <FileVersion>1.5.0.0</FileVersion>
+    <AssemblyVersion>1.5.0.0</AssemblyVersion>
     <Product>陕师大校园网自动登录</Product>
     <AssemblyTitle>陕师大校园网自动登录</AssemblyTitle>
     <Company>SNNU</Company>
@@ -30,17 +30,46 @@
     <Copyright>Copyright © 2026 SNNU</Copyright>
     <!-- 只保留简体中文资源，去掉其余 20 多种语言的 .resources.dll -->
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+
+    <!--
+      这个程序常驻托盘，堆只有几 MB：
+      - 关闭并发 GC：少一条后台 GC 线程和一小块记账内存，暂停时间对这么小的堆可以忽略；
+      - 明确工作站 GC：别让 SDK 在某些配置下按服务端 GC 展开更多的堆。
+    -->
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <TieredCompilationQuickJitForLoops>true</TieredCompilationQuickJitForLoops>
+
+    <!-- 用自建 Program.Main 取代 XAML 生成入口：提权写 hosts 的子进程不必初始化 WinUI，
+         启动时间从 ~800ms 降到几十毫秒，也不会闪出窗口 -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <!-- 发布版不带调试符号；分层 PGO 让热路径（巡检循环、日志派发）跑几条后自动优化 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <TieredPGO>true</TieredPGO>
   </PropertyGroup>
 
   <!--
     发布后剔除本项目用不到的运行时组件：Windows ML（onnxruntime + DirectML 共约 39MB）、
-    桌面小组件、.NET 崩溃转储支持。WinUI 与托盘相关代码不依赖它们，
-    剔除后仍可正常启动（已用 snapshot / test-tray 两个自检模式回归验证）。
-  -->
+      桌面小组件、.NET 崩溃转储支持、以及 80 多个语言的 .mui 本地化资源
+      （界面文案全是写死的中文，控件默认文案走 neutral 回退）。
+      剔除后仍可正常启动（已用 snapshot / ui-test 两个自检模式回归验证）。
+
+      下面这批程序集是按「运行期真实加载的模块清单」逐个比对出来的：
+      跑一遍全功能自检后用 tasklist /m 导出已加载 DLL，未出现在清单里且不属于
+      惰性加载路径的才删。删错会表现为启动即崩（XamlParseException）或某个功能点了没反应，
+      所以每次调整都要重跑 snapshot / ui-test / login-selftest 三个自检。
+    -->
   <Target Name="TrimUnusedRuntime" AfterTargets="Publish">
     <PropertyGroup>
       <TrimRoot Condition="'$(PublishDir)' != ''">$(PublishDir)</TrimRoot>
       <TrimRoot Condition="'$(TrimRoot)' == ''">$(OutDir)</TrimRoot>
+
+      <!-- 目标执行时才枚举目录：评估阶段 publish 输出还不存在 -->
+      <TrimDirs>$([System.IO.Directory]::GetDirectories('$(TrimRoot)'))</TrimDirs>
     </PropertyGroup>
 
     <ItemGroup>
@@ -59,10 +88,62 @@
       <UnusedRuntime Include="$(TrimRoot)Microsoft.Web.WebView2.Core.dll" />
       <UnusedRuntime Include="$(TrimRoot)Microsoft.Web.WebView2.Core.Projection.dll" />
       <UnusedRuntime Include="$(TrimRoot)WebView2Loader.dll" />
+
+      <!-- 语言资源目录：只留简中与英文回退 -->
+      <UnusedLocaleDir Include="$(TrimDirs)" />
+      <UnusedLocaleDir Remove="$(TrimRoot)zh-CN;$(TrimRoot)en-us" />
+      <UnusedLocaleDir Remove="$(TrimRoot)Microsoft.UI.Xaml;$(TrimRoot)NpuDetect" />
     </ItemGroup>
 
-    <Message Importance="high" Text="TrimUnusedRuntime: $(TrimRoot) 剔除 @(UnusedRuntime->Count()) 个未使用组件" />
-    <Delete Files="@(UnusedRuntime)" ContinueOnError="true" />
+    <!--
+      运行期从不加载的程序集。判断依据：全功能自检后 tasklist /m 的模块清单里没有它们，
+      且依赖闭包里也没有惰性加载它们的路径。
+    -->
+    <ItemGroup>
+      <!-- 7.6MB：XAML 编译成 .xbf，运行期不解析 XML；本项目也不用 XmlDocument -->
+      <UnusedAssembly Include="$(TrimRoot)System.Private.Xml.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Private.Xml.Linq.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Xml.ReaderWriter.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Xml.XDocument.dll" />
+      <!-- 没有 ADO.NET / WCF / VB / dynamic 用法 -->
+      <UnusedAssembly Include="$(TrimRoot)System.Data.Common.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Private.DataContractSerialization.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Transactions.Local.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.VisualBasic.Core.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.CSharp.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Reflection.Metadata.dll" />
+      <!-- 用不到的网络/并发/序列化分支 -->
+      <UnusedAssembly Include="$(TrimRoot)System.Net.HttpListener.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Net.Mail.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Net.Requests.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Linq.Parallel.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Collections.Immutable.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Threading.Tasks.Dataflow.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.Numerics.Tensors.dll" />
+      <UnusedAssembly Include="$(TrimRoot)System.ComponentModel.TypeConverter.dll" />
+      <!-- WinUI 的 Phone 控件集与 AI/ML 投影，本项目完全不碰 -->
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.UI.Xaml.Phone.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.Windows.AI.*.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.Windows.Vision*.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.Windows.SemanticSearch*.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.Windows.Workloads*.dll" />
+      <UnusedAssembly Include="$(TrimRoot)Microsoft.Windows.Private.Workloads*.dll" />
+
+      <!-- .NET 崩溃转储工具、WinAppSDK 重启代理、调试符号、Windows ML 工作负载清单 -->
+      <UnusedFile Include="$(TrimRoot)createdump.exe" />
+      <UnusedFile Include="$(TrimRoot)RestartAgent.exe" />
+      <UnusedFile Include="$(TrimRoot)SNNUAutoLogin.pdb" />
+      <UnusedFile Include="$(TrimRoot)workloads*.json" />
+      <UnusedFile Include="$(TrimRoot)*.winmd" />
+    </ItemGroup>
+
+    <Message Importance="high" Text="TrimUnusedRuntime: $(TrimRoot) 剔除 @(UnusedRuntime->Count()) 个未使用组件、@(UnusedAssembly->Count()) 个未加载程序集、@(UnusedFile->Count()) 个资源文件、@(UnusedLocaleDir->Count()) 个语言目录" />
+    <Delete Files="@(UnusedRuntime);@(UnusedAssembly);@(UnusedFile)" ContinueOnError="true" />
+    <RemoveDir Directories="@(UnusedLocaleDir)" ContinueOnError="true" />
+
+    <!-- NPU 探测只在 Windows ML 场景用；顺带删掉。刻意不动 WinUIEdit.dll：
+         它是 TextBox / RichEditBox 的编辑内核，删掉后 XAML 里第一个 TextBox 就创建不出来 -->
+    <RemoveDir Directories="$(TrimRoot)NpuDetect" ContinueOnError="true" />
   </Target>
 
   <ItemGroup>

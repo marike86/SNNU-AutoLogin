@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
@@ -22,6 +23,10 @@ public sealed class LoginResult
 {
     public bool Success { get; init; }
     public bool AlreadyOnline { get; init; }
+
+    /// <summary>Portal 要求输入图形验证码（此时未提交登录）。</summary>
+    public bool NeedCaptcha { get; init; }
+
     public string Message { get; init; } = "";
     public string? Account { get; init; }
     public string? Ip { get; init; }
@@ -34,6 +39,23 @@ public sealed class LoginResult
         => new() { Success = true, AlreadyOnline = true, Message = "已在线", Account = acc, Ip = ip, LoginTime = time };
 
     public static LoginResult Fail(string msg) => new() { Success = false, Message = msg };
+
+    public static LoginResult Captcha(string msg) => new() { Success = false, NeedCaptcha = true, Message = msg };
+}
+
+/// <summary>一张验证码图片（原始字节，界面自行解码显示）。</summary>
+public sealed record CaptchaImage(byte[] Bytes, string Hint);
+
+/// <summary>登录页解析结果：提交地址、隐藏域与验证码相关元素。</summary>
+internal sealed class LoginPage
+{
+    public Uri? BaseUri { get; init; }
+    public string? FormAction { get; init; }
+    public Dictionary<string, string> Hidden { get; } = new(StringComparer.OrdinalIgnoreCase);
+    public string? CaptchaField { get; set; }
+    public string? CaptchaImageUrl { get; set; }
+    public bool AlreadyOnline { get; init; }
+    public bool HasPasswordField { get; init; }
 }
 
 /// <summary>
@@ -127,8 +149,24 @@ public sealed class PortalClient : IDisposable
         }
     }
 
-    /// <summary>执行登录。会先抓取 Portal 重定向携带的 NAS 参数（wlanuserip 等）并透传。</summary>
-    public async Task<LoginResult> LoginAsync(string account, string password, Operator op, CancellationToken ct = default)
+    /// <summary>最近一次解析到的登录页；提交表单时复用它带的 action 与隐藏域。</summary>
+    private LoginPage? _page;
+
+    /// <summary>执行登录（无验证码路径）。</summary>
+    public Task<LoginResult> LoginAsync(string account, string password, Operator op, CancellationToken ct = default)
+        => LoginInternalAsync(account, password, op, null, ct);
+
+    /// <summary>执行登录，带上用户填写的图形验证码。</summary>
+    public Task<LoginResult> LoginAsync(
+        string account, string password, Operator op, string captcha, CancellationToken ct = default)
+        => LoginInternalAsync(account, password, op, captcha, ct);
+
+    /// <summary>
+    /// 登录主流程：先看是否已在线 → 抓登录页 → 需要验证码且没提供就返回 NeedCaptcha
+    /// → 按页面里的 action + 隐藏域提交 → 判定结果。
+    /// </summary>
+    private async Task<LoginResult> LoginInternalAsync(
+        string account, string password, Operator op, string? captcha, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(account)) return LoginResult.Fail("账号不能为空");
         if (string.IsNullOrEmpty(password)) return LoginResult.Fail("密码不能为空");
@@ -144,7 +182,8 @@ public sealed class PortalClient : IDisposable
             _ => ""
         };
 
-        var at = account.IndexOf('@');        if (at > 0)
+        var at = account.IndexOf('@');
+        if (at > 0)
         {
             var suffix = account[(at + 1)..].Trim().ToLowerInvariant();
             if (suffix is "mobile" or "unicom" or "telecom" or "campus" or "edu")
@@ -158,20 +197,10 @@ public sealed class PortalClient : IDisposable
         var status = await GetStatusAsync(ct).ConfigureAwait(false);
         if (status.Success) return status;
 
-        // 抓登录页，取 NAS 参数
-        var nasParams = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        string loginPage = "";
+        LoginPage? page;
         try
         {
-            using var probe = await _http.GetAsync(Root + "login", ct).ConfigureAwait(false);
-            loginPage = await ReadHtmlAsync(probe, ct).ConfigureAwait(false);
-
-            var finalUri = probe.RequestMessage?.RequestUri;
-            if (finalUri != null)
-            {
-                foreach (var kv in ParseQuery(finalUri.Query))
-                    nasParams[kv.Key] = kv.Value;
-            }
+            page = await LoadLoginPageAsync(ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -182,32 +211,50 @@ public sealed class PortalClient : IDisposable
             return LoginResult.Fail(Describe(ex));
         }
 
-        if (loginPage.Contains("当前登录账号", StringComparison.Ordinal))
-            return LoginResult.Online(null, null, null);
+        if (page is null) return LoginResult.Fail("无法解析登录页（Portal 可能已改版）");
+        if (page.AlreadyOnline) return LoginResult.Online(null, null, null);
 
-        // 有验证码则无法纯自动登录
-        if (Regex.IsMatch(loginPage, @"name\s*=\s*[""']?checkcode", RegexOptions.IgnoreCase))
-            return LoginResult.Fail("Portal 要求输入图形验证码，请先用浏览器登录一次");
+        if (!page.HasPasswordField && page.CaptchaField is null)
+            return LoginResult.Fail("登录页里没有密码输入框（Portal 可能已改版）");
 
-        var form = new Dictionary<string, string>
+        // 页面带验证码但本次没带：不提交，先把需求抛给界面
+        if (page.CaptchaField is { Length: > 0 } captchaField && string.IsNullOrWhiteSpace(captcha))
+            return LoginResult.Captcha("本次登录需要输入图片验证码");
+
+        var form = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // 登录页里的隐藏域（NAS 参数、跳转地址等）原样带上，不同接入点差别很大
+        foreach (var kv in page.Hidden)
         {
-            ["account"] = account,
-            ["password"] = password
-        };
+            if (kv.Key.Equals("account", StringComparison.OrdinalIgnoreCase)
+                || kv.Key.Equals("password", StringComparison.OrdinalIgnoreCase)
+                || kv.Key.Equals("checkcode", StringComparison.OrdinalIgnoreCase))
+                continue;
 
-        if (yys.Length > 0) form["yys"] = yys;
-
-        // 透传 NAS 侧参数（不同接入点参数名不同，多余参数不影响服务端解析）
-        foreach (var key in new[] { "wlanuserip", "wlanacname", "nasip", "userip", "usermac", "mac", "subnet" })
-        {
-            if (nasParams.TryGetValue(key, out var v) && !string.IsNullOrEmpty(v))
-                form[key] = v;
+            form[kv.Key] = kv.Value;
         }
 
-        var endpoints = new[] { Root + "login", Root + "login.jsp" };
+        form["account"] = account;
+        form["password"] = password;
+        if (yys.Length > 0) form["yys"] = yys;
+
+        if (page.CaptchaField is { Length: > 0 } cf && !string.IsNullOrWhiteSpace(captcha))
+            form[cf] = captcha.Trim();
+
+        // 把登录页 URL 上的 NAS 参数也补一份（有的接入点只认 query 里的值）
+        foreach (var kv in ParseQuery(page.BaseUri?.Query ?? ""))
+        {
+            if (!form.ContainsKey(kv.Key)) form[kv.Key] = kv.Value;
+        }
+
+        var endpoints = new List<string>();
+        if (page.FormAction is { Length: > 0 } action) endpoints.Add(action);
+        endpoints.Add(Root + "login");
+        endpoints.Add(Root + "login.jsp");
+
         string lastError = "登录失败";
 
-        foreach (var url in endpoints)
+        foreach (var url in endpoints.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -224,6 +271,16 @@ public sealed class PortalClient : IDisposable
                 }
 
                 lastError = ExtractError(html) ?? lastError;
+
+                // 还要求填验证码 => 上一次的码不对或已过期
+                var again = ParseLoginPage(html, resp.RequestMessage?.RequestUri);
+                if (again.CaptchaField is { Length: > 0 })
+                {
+                    _page = again;
+                    return LoginResult.Captcha(lastError.Contains("验证码", StringComparison.Ordinal)
+                        ? "验证码不正确，已刷新，请重新输入"
+                        : lastError);
+                }
 
                 // 表单仍在 => 该端点不是登录处理入口，试下一个
                 if (!Regex.IsMatch(html, @"name\s*=\s*[""']?password", RegexOptions.IgnoreCase))
@@ -244,6 +301,162 @@ public sealed class PortalClient : IDisposable
         if (verify.Success) return verify;
 
         return LoginResult.Fail(lastError);
+    }
+
+    /// <summary>
+    /// 取一张验证码图片。每次都重新拉一遍登录页，保证「图片 → 提交」落在同一个会话里
+    /// （验证码是按会话存的，中间夹一次别的请求就可能被重置）。
+    /// </summary>
+    public async Task<CaptchaImage?> FetchCaptchaAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var page = await LoadLoginPageAsync(ct).ConfigureAwait(false);
+            if (page is null || page.AlreadyOnline) return null;
+
+            if (string.IsNullOrEmpty(page.CaptchaImageUrl)) return null;
+
+            using var resp = await _http.GetAsync(page.CaptchaImageUrl, ct).ConfigureAwait(false);
+            var media = resp.Content.Headers.ContentType?.MediaType ?? "";
+            var bytes = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+
+            // 会话失效时这个地址会返回登录页 HTML，不能当图片显示
+            if (bytes.Length < 64 || !media.StartsWith("image", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return new CaptchaImage(bytes, "看不清可以点「换一张」");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<LoginPage?> LoadLoginPageAsync(CancellationToken ct)
+    {
+        using var resp = await _http.GetAsync(Root + "login", ct).ConfigureAwait(false);
+        var html = await ReadHtmlAsync(resp, ct).ConfigureAwait(false);
+
+        if (html.Contains("当前登录账号", StringComparison.Ordinal))
+            return new LoginPage { BaseUri = resp.RequestMessage?.RequestUri, AlreadyOnline = true };
+
+        var page = ParseLoginPage(html, resp.RequestMessage?.RequestUri);
+        _page = page;
+        return page;
+    }
+
+    // ────────────────────────── 登录页解析 ──────────────────────────
+
+    private static readonly Regex TagRegex = new(@"<(input|img|form)\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex AttrRegex = new(@"([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*([""'])(.*?)\2|([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*([^\s""'>]+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 不依赖具体 Portal 模板：从 HTML 里找出表单地址、隐藏域，以及验证码的输入名与图片地址。
+    /// 各校 Portal / NAS 页面写法差别很大，靠「属性名像不像验证码」来认比写死选择器可靠。
+    /// </summary>
+    internal static LoginPage ParseLoginPage(string html, Uri? baseUri)
+    {
+        string? formAction = null;
+        bool hasPassword = false;
+        string? captchaField = null;
+        string? captchaImg = null;
+
+        foreach (Match m in TagRegex.Matches(html))
+        {
+            var tag = m.Groups[1].Value.ToLowerInvariant();
+            var attrs = ParseAttributes(m.Value);
+
+            if (tag == "form")
+            {
+                if (formAction is null && attrs.TryGetValue("action", out var a) && !string.IsNullOrWhiteSpace(a))
+                    formAction = a;
+                continue;
+            }
+
+            if (tag == "input")
+            {
+                attrs.TryGetValue("name", out var name);
+                attrs.TryGetValue("type", out var type);
+
+                if (string.Equals(name, "password", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(type, "password", StringComparison.OrdinalIgnoreCase))
+                    hasPassword = true;
+
+                if (captchaField is null && !string.IsNullOrWhiteSpace(name) && LooksLikeCaptcha(name))
+                    captchaField = name;
+
+                if (string.Equals(type, "hidden", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(name))
+                    continue;   // 隐藏域在下面统一收
+                continue;
+            }
+
+            // img：src 里带 code / captcha / rand 之类字样
+            if (tag == "img" && captchaImg is null
+                && attrs.TryGetValue("src", out var src) && !string.IsNullOrWhiteSpace(src)
+                && LooksLikeCaptcha(src))
+                captchaImg = Absolute(baseUri, src);
+        }
+
+        // 隐藏域（name + value 同时存在）
+        var hidden = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in TagRegex.Matches(html))
+        {
+            if (!m.Groups[1].Value.Equals("input", StringComparison.OrdinalIgnoreCase)) continue;
+            var attrs = ParseAttributes(m.Value);
+            if (!attrs.TryGetValue("type", out var t) || !t.Equals("hidden", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!attrs.TryGetValue("name", out var n) || string.IsNullOrWhiteSpace(n)) continue;
+
+            hidden[n] = attrs.TryGetValue("value", out var v) ? v : "";
+        }
+
+        var page = new LoginPage
+        {
+            BaseUri = baseUri,
+            FormAction = Absolute(baseUri, formAction),
+            CaptchaField = captchaField,
+            CaptchaImageUrl = captchaImg,
+            HasPasswordField = hasPassword
+        };
+
+        foreach (var kv in hidden) page.Hidden[kv.Key] = kv.Value;
+
+        return page;
+    }
+
+    private static bool LooksLikeCaptcha(string text)
+    {
+        var s = text.ToLowerInvariant();
+        return s.Contains("checkcode") || s.Contains("captcha") || s.Contains("verifycode")
+            || s.Contains("vcode") || s.Contains("authcode") || s.Contains("randcode")
+            || s.Contains("/code") || s.Contains("code=") || s.Contains("validatecode");
+    }
+
+    private static Dictionary<string, string> ParseAttributes(string tag)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (Match m in AttrRegex.Matches(tag))
+        {
+            var key = m.Groups[1].Success ? m.Groups[1].Value : m.Groups[4].Value;
+            var val = m.Groups[1].Success ? m.Groups[3].Value : m.Groups[5].Value;
+            if (string.IsNullOrEmpty(key)) continue;
+
+            dict[key] = WebUtility.HtmlDecode(val);
+        }
+
+        return dict;
+    }
+
+    private static string? Absolute(Uri? baseUri, string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return null;
+        url = url.Trim();
+
+        if (Uri.TryCreate(url, UriKind.Absolute, out var abs)) return abs.ToString();
+        if (baseUri is null) return url;
+
+        return Uri.TryCreate(baseUri, url, out var rel) ? rel.ToString() : url;
     }
 
     private static string BuildFormBody(Dictionary<string, string> form)

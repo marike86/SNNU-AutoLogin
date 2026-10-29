@@ -1,4 +1,4 @@
-; ============================================================================
+﻿; ============================================================================
 ;  陕师大校园网自动登录 —— 安装包构建脚本（Inno Setup 6）
 ;
 ;  构建：  build_installer.bat
@@ -9,8 +9,8 @@
 
 #define AppName        "陕师大校园网自动登录"
 #define AppNameEn      "SNNUAutoLogin"
-#define AppVer         "1.2.0"
-#define AppVerFull     "1.2.0.0"
+#define AppVer         "1.5.0"
+#define AppVerFull     "1.5.0.0"
 #define AppExe         "SNNUAutoLogin.exe"
 #define AppPublisher   "SNNU"
 #define AppURL         "https://www.snnu.edu.cn"
@@ -57,7 +57,7 @@ OutputBaseFilename={#AppNameEn}-Setup-{#AppVer}
 SetupIconFile=..\Assets\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
-Compression=lzma2/max
+Compression=lzma2/ultra64
 SolidCompression=yes
 LZMAUseSeparateProcess=yes
 WizardStyle=modern
@@ -161,6 +161,72 @@ begin
   Result := WasRunning and WizardSilent;
 end;
 
+{ 覆盖安装时清掉旧版本留下、新版本已经不再发布的目录。
+  典型是 WinUI 的 80 多个语言资源目录：1.4.0 起只保留 zh-CN / en-us，
+  但 Inno 的 [Files] 只覆盖同名文件，不会删掉"这次没带过来的"目录，
+  不主动清就会一直留着一份几十 MB 的死重量。
+  这一步跑在 ssInstall（真正复制文件之前），所以新版本要用的目录随后会被重新建好。 }
+procedure CleanupStaleDirs;
+var
+  FindRec: TFindRec;
+  Name: String;
+  Target: String;
+begin
+  if not FindFirst(ExpandConstant('{app}\*'), FindRec) then Exit;
+
+  try
+    repeat
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) = 0 then Continue;
+
+      Name := FindRec.Name;
+      if (Name = '.') or (Name = '..') then Continue;
+      if (CompareText(Name, 'zh-CN') = 0) then Continue;
+      if (CompareText(Name, 'en-us') = 0) then Continue;
+      if (CompareText(Name, 'Microsoft.UI.Xaml') = 0) then Continue;
+
+      Target := ExpandConstant('{app}\') + Name;
+      Log('SNNU: 清理旧版本目录 ' + Target);
+      DelTree(Target, True, True, True);
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+{ 递归删掉安装目录里的旧文件（保留卸载器 unins*）。
+  1.4.1 起发布端删掉了 50 多个 winmd / 未加载程序集，而 Inno 的 [Files] 只覆盖同名文件，
+  不主动删就会让老用户升级后目录里堆着一份再也用不到的死文件（实测 162MB vs 128MB）。 }
+procedure DeleteStaleFiles(Dir: String);
+var
+  FindRec: TFindRec;
+  Name: String;
+  Full: String;
+begin
+  if not FindFirst(Dir + '\*', FindRec) then Exit;
+
+  try
+    repeat
+      Name := FindRec.Name;
+      if (Name = '.') or (Name = '..') then Continue;
+
+      Full := Dir + '\' + Name;
+
+      if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+      begin
+        DeleteStaleFiles(Full);
+        Continue;
+      end;
+
+      if Pos('unins', Lowercase(Name)) = 1 then Continue;
+
+      if not DeleteFile(Full) then
+        Log('SNNU: 旧文件删除失败 ' + Full);
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
 { 覆盖升级时把开机自启改指到安装目录：
   旧版本可能是便携版（自启写的是别的路径），不改的话升级完还在启动旧程序。 }
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -168,6 +234,13 @@ var
   OldValue: String;
   InstallExe: String;
 begin
+  if CurStep = ssInstall then
+  begin
+    DeleteStaleFiles(ExpandConstant('{app}'));
+    CleanupStaleDirs;
+    Exit;
+  end;
+
   if CurStep <> ssPostInstall then Exit;
   if not RegQueryStringValue(HKCU, RunKey, RunValue, OldValue) then Exit;
   if OldValue = '' then Exit;

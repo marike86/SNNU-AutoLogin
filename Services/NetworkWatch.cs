@@ -17,6 +17,7 @@ public sealed class NetworkWatch : IDisposable
     private readonly DispatcherQueue _dispatcher;
     private readonly Action _onChanged;
 
+    private DispatcherQueueTimer? _debounce;   // 复用同一个定时器，避免每次网络变化都新建一个
     private int _cooldown;      // 1 = 去抖窗口内，已排队的触发会被丢弃
     private bool _started;
     private bool _disposed;
@@ -60,23 +61,35 @@ public sealed class NetworkWatch : IDisposable
             finally
             {
                 // 去抖窗口结束后才允许下一次触发（定时器跑在 UI 线程，无需加锁）
-                var t = _dispatcher.CreateTimer();
-                t.Interval = TimeSpan.FromMilliseconds(DebounceMs);
-                t.IsRepeating = false;
-                t.Tick += (_, _) =>
+                var t = _debounce;
+                if (t is null)
                 {
-                    Volatile.Write(ref _cooldown, 0);
-                    t.Stop();
-                };
+                    t = _dispatcher.CreateTimer();
+                    t.Interval = TimeSpan.FromMilliseconds(DebounceMs);
+                    t.IsRepeating = false;
+                    t.Tick += OnDebounceTick;
+                    _debounce = t;
+                }
+
+                t.Stop();
                 t.Start();
             }
         });
+    }
+
+    private void OnDebounceTick(DispatcherQueueTimer sender, object args)
+    {
+        sender.Stop();
+        Volatile.Write(ref _cooldown, 0);
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+
+        try { _debounce?.Stop(); } catch { }
+        _debounce = null;
 
         try
         {

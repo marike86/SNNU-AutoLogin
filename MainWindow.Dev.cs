@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -21,8 +22,15 @@ public sealed partial class MainWindow
         _hooksRan = true;
 
         var argv = Environment.GetCommandLineArgs();
+
+        // 自检：把一张假验证码塞进来，检查面板布局与交互（配合 --snapshot 出图）
+        if (argv.AsSpan().Contains("--captcha-demo")) Guard(RunCaptchaDemoAsync);
+
         if (argv.AsSpan().Contains("--snapshot")) Guard(RunSnapshotAsync);
         else if (argv.AsSpan().Contains("--ui-test")) Guard(RunUiSelfTestAsync);
+        else if (argv.AsSpan().Contains("--motion")) Guard(RunMotionTestAsync);
+        else if (argv.AsSpan().Contains("--mem")) Guard(RunMemReportAsync);
+        else if (argv.AsSpan().Contains("--lock-test")) Guard(RunLockKeepTestAsync);
         else if (argv.AsSpan().Contains("--test-close")) Guard(RunCloseTestAsync);
         else if (argv.AsSpan().Contains("--test-tray")) Guard(RunTrayFootprintTestAsync);
         else if (argv.AsSpan().Contains("--test-min")) Guard(RunMinimizeTestAsync);
@@ -78,6 +86,22 @@ public sealed partial class MainWindow
     private async Task RunSnapshotAsync()
     {
         await Task.Delay(2400);
+
+        // --shot-full：先把窗口拉高，让右栏所有卡片进入可视区，便于一次看全版式
+        if (Environment.GetCommandLineArgs().AsSpan().Contains("--shot-full") && _appWindow is not null)
+        {
+            try
+            {
+                int height = int.TryParse(Environment.GetEnvironmentVariable("SNNU_SHOT_HEIGHT"), out var h)
+                    ? Math.Clamp(h, 700, 2200)
+                    : 1080;
+
+                _appWindow.Resize(new Windows.Graphics.SizeInt32(1040, height));
+                await Task.Delay(1000);
+            }
+            catch { }
+        }
+
         await CaptureAsync();
         _rt.Exit();
     }
@@ -153,6 +177,194 @@ public sealed partial class MainWindow
             System.IO.Path.Combine(System.IO.Path.GetTempPath(), "snnu_footprint.txt"),
             sb.ToString(), System.Text.Encoding.UTF8);
 
+        _rt.Exit();
+    }
+
+    /// <summary>
+    /// 带动画地走一遍「未登录 → 正在登录 → 已连接」，逐段出图。
+    /// 验证交叉淡入结束后文字确实回到 Opacity=1，图标也确实换回来了。
+    /// </summary>
+    private async Task RunMotionTestAsync()
+    {
+        await Task.Delay(1600);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"start     = {Mem()}");
+
+        ApplyState(ConnState.Offline, null, animate: true);
+        await Task.Delay(520);
+        sb.AppendLine($"offline   = title='{StateTitle.Text}' op={StateTitle.Opacity:F2} " +
+                      $"sub='{StateSubtitle.Text}' op2={StateSubtitle.Opacity:F2} busy={BusyRing.IsActive}");
+        await SaveElementAsync(StatusCard, "snnu_motion_offline.png");
+
+        ApplyState(ConnState.Connecting, null, animate: true);
+        await Task.Delay(520);
+        sb.AppendLine($"connecting= title='{StateTitle.Text}' op={StateTitle.Opacity:F2} " +
+                      $"busy={BusyRing.IsActive} halo={HaloRing.Visibility}");
+        await SaveElementAsync(StatusCard, "snnu_motion_connecting.png");
+
+        ApplyState(ConnState.Online, null, animate: true);
+        await Task.Delay(900);
+        sb.AppendLine($"online    = title='{StateTitle.Text}' op={StateTitle.Opacity:F2} " +
+                      $"glyph=U+{(int)StateIcon.Glyph[0]:X4} busy={BusyRing.IsActive}");
+        await SaveElementAsync(StatusCard, "snnu_motion_online.png");
+
+        sb.AppendLine($"end       = {Mem()}");
+
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "snnu_motion.txt"),
+            sb.ToString(), System.Text.Encoding.UTF8);
+
+        await Task.Delay(400);
+        _rt.Exit();
+    }
+
+    /// <summary>窗口可见时的内存曲线：跨过启动后 20 秒那次自动 Trim，采样三次。</summary>
+    private async Task RunMemReportAsync()
+    {
+        await Task.Delay(3000);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"t=3s   = {Mem()}");
+
+        await Task.Delay(22000);
+        sb.AppendLine($"t=25s  = {Mem()}");
+
+        await Task.Delay(6000);
+        sb.AppendLine($"t=31s  = {Mem()}");
+
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "snnu_mem.txt"),
+            sb.ToString(), System.Text.Encoding.UTF8);
+
+        _rt.Exit();
+    }
+
+    /// <summary>
+    /// 验证「锁屏保持」：模拟一次锁屏 → 读 powercfg 的执行状态请求 → 模拟解锁 → 再读一次。
+    /// 用 PostMessage 投 WTS 会话消息，走的是与真实锁屏完全相同的处理路径。
+    /// </summary>
+    private async Task RunLockKeepTestAsync()
+    {
+        await Task.Delay(2500);
+        if (!_uiBuilt) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"setting          = {_rt.Store.Settings.KeepAliveOnLock}  wts={_rt.SessionWatchAvailable}");
+        sb.AppendLine($"locked(before)   = {_rt.IsSessionLocked}");
+        sb.AppendLine($"awake(before)    = {_rt.StayAwakeActive}");
+
+        _rt.SimulateSessionLock(true);
+        await Task.Delay(1500);
+        sb.AppendLine($"locked(after)    = {_rt.IsSessionLocked}");
+        sb.AppendLine($"awake(after)     = {_rt.StayAwakeActive}  applied=0x{_rt.StayAwakeApplied:X}  ok={_rt.StayAwakeResult != 0}");
+
+        // 关掉开关应立即释放，不需要等到解锁
+        _rt.Store.Settings.KeepAliveOnLock = false;
+        _rt.ApplyLockPolicy();
+        await Task.Delay(700);
+        sb.AppendLine($"switch off       = awake {_rt.StayAwakeActive}（锁屏中，期望 False）");
+
+        _rt.Store.Settings.KeepAliveOnLock = true;
+        _rt.ApplyLockPolicy();
+        await Task.Delay(700);
+        sb.AppendLine($"switch on        = awake {_rt.StayAwakeActive}（期望 True）");
+
+        sb.AppendLine("--- powercfg /requests（锁屏中，需管理员才有输出）---");
+        sb.AppendLine(ReadExecutionRequests());
+
+        _rt.SimulateSessionLock(false);
+        await Task.Delay(1800);
+        sb.AppendLine($"locked(unlock)   = {_rt.IsSessionLocked}");
+        sb.AppendLine($"awake(unlock)    = {_rt.StayAwakeActive}  applied=0x{_rt.StayAwakeApplied:X}（期望 False）");
+        sb.AppendLine("--- powercfg /requests（解锁后，需管理员才有输出）---");
+        sb.AppendLine(ReadExecutionRequests());
+
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "snnu_lock.txt"),
+            sb.ToString(), System.Text.Encoding.UTF8);
+
+        await Task.Delay(600);
+        _rt.Exit();
+    }
+
+    /// <summary>只取「执行状态」一节：进程路径是 ASCII，不会被控制台代码页影响。</summary>
+    private static string ReadExecutionRequests()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("powercfg.exe", "/requests")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var p = System.Diagnostics.Process.Start(psi);
+            if (p is null) return "powercfg 启动失败";
+
+            string text = p.StandardOutput.ReadToEnd();
+            p.WaitForExit(4000);
+
+            var lines = text.Split('\n');
+            var sb = new System.Text.StringBuilder();
+            foreach (var line in lines)
+            {
+                var t = line.TrimEnd('\r');
+                if (t.Contains("SNNUAutoLogin", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("EXECUTION", StringComparison.OrdinalIgnoreCase)
+                    || t.StartsWith("DISPLAY", StringComparison.OrdinalIgnoreCase))
+                    sb.AppendLine(t);
+            }
+
+            return sb.Length == 0 ? "（无相关请求）" : sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            return "读取失败：" + ex.Message;
+        }
+    }
+
+    /// <summary>把 %TEMP%\snnu_captcha_sample.png 当作验证码塞进状态机，用于界面自检。</summary>
+    private async Task RunCaptchaDemoAsync()
+    {
+        await Task.Delay(800);
+        if (!_uiBuilt) return;
+
+        try
+        {
+            var png = System.IO.File.ReadAllBytes(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "snnu_captcha_sample.png"));
+            _rt.Coordinator.InjectCaptchaForTest(png);
+        }
+        catch (Exception ex)
+        {
+            Trace("captcha-demo 失败: " + ex.Message);
+            return;
+        }
+
+        // 顺带走一遍提交流程：当前已在线，提交应当直接把状态推回「已连接」并收起面板
+        if (!Environment.GetCommandLineArgs().AsSpan().Contains("--captcha-submit")) return;
+
+        await Task.Delay(1200);
+        var r = await _rt.Coordinator.SubmitCaptchaAsync("A7K2");
+        await Task.Delay(600);
+
+        var report =
+            $"result     = ok={r.Success} online={r.AlreadyOnline} msg={r.Message}\n" +
+            $"state      = {_rt.Coordinator.State}\n" +
+            $"pending    = {(_rt.Coordinator.PendingCaptcha is null ? "null" : "present")}\n" +
+            $"panel      = {CaptchaPanel.Visibility}\n" +
+            $"pic        = {(CaptchaPic.Source is null ? "null" : "image")}\n" +
+            $"box        = '{CaptchaBox.Text}'\n" +
+            $"title      = {StateTitle.Text}\n";
+
+        System.IO.File.WriteAllText(
+            System.IO.Path.Combine(System.IO.Path.GetTempPath(), "snnu_captcha_test.txt"),
+            report, System.Text.Encoding.UTF8);
+
+        await Task.Delay(800);
         _rt.Exit();
     }
 
