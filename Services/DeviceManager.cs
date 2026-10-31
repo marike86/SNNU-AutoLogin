@@ -35,7 +35,8 @@ public enum DeviceListState
 /// </summary>
 public sealed class DeviceManager : IDisposable
 {
-    private readonly PortalClient _client = new();
+    private readonly IOnlineDevicePortal _client;
+    private readonly bool _ownsClient;
     private readonly DispatcherQueue _dispatcher;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -60,7 +61,22 @@ public sealed class DeviceManager : IDisposable
     /// <summary>列表变化（内容、状态或错误有变动）。</summary>
     public event Action? Changed;
 
-    public DeviceManager(DispatcherQueue dispatcher) => _dispatcher = dispatcher;
+    /// <param name="dispatcher">界面线程调度器。</param>
+    /// <param name="client">门户实现；由本类负责释放。</param>
+    public DeviceManager(DispatcherQueue dispatcher, IOnlineDevicePortal client)
+    {
+        _dispatcher = dispatcher;
+        _client = client;
+        _ownsClient = true;
+    }
+
+    /// <summary>测试用：注入自己的门户实现（ownsClient=false 时不负责释放它）。</summary>
+    public DeviceManager(DispatcherQueue dispatcher, IOnlineDevicePortal client, bool ownsClient)
+    {
+        _dispatcher = dispatcher;
+        _client = client;
+        _ownsClient = ownsClient;
+    }
 
     /// <summary>拉取列表。port 为 0 表示沿用当前端口。</summary>
     public async Task RefreshAsync(int port = 0, CancellationToken ct = default)
@@ -172,6 +188,51 @@ public sealed class DeviceManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// 断开本机当前这条连接 —— 对应门户 userstatus.jsp 底部那个「断开连接」按钮。
+    ///
+    /// 与 <see cref="TakeOfflineAsync"/> 的区别：那个踢的是设备表格里的**别人**，
+    /// 这个断的是**本机**（logoff）。断开后本机掉线，巡检会按原有设置自动重新认证
+    /// —— 与门户网页上的行为一致。
+    /// </summary>
+    public async Task<bool> DisconnectSelfAsync(CancellationToken ct = default)
+    {
+        if (_disposed) return false;
+
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            SetState(DeviceListState.Loading, "");
+
+            var ok = await _client.DisconnectAsync(Port, ct).ConfigureAwait(false);
+
+            if (!ok)
+            {
+                SetState(DeviceListState.Failed, "断开失败，请检查是否仍在校园网内");
+                return false;
+            }
+
+            // 断开后本机已不在在线列表里；重新拉一次让界面反映真实状态
+            await ReloadAsync(ct).ConfigureAwait(false);
+
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            SetState(DeviceListState.Idle, "");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            SetState(DeviceListState.Failed, ex.Message);
+            return false;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     /// <summary>重新拉列表（不释放 gate，调用方已经持有）。</summary>
     private async Task ReloadAsync(CancellationToken ct)
     {
@@ -227,7 +288,7 @@ public sealed class DeviceManager : IDisposable
         _cts?.Cancel();
         _cts = null;
 
-        _client.Dispose();
+        if (_ownsClient) _client.Dispose();
         _gate.Dispose();
     }
 }

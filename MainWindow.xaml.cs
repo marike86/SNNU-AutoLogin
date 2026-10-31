@@ -832,7 +832,7 @@ public sealed partial class MainWindow : Window
 
         if (!device.CanForceOffline)
         {
-            _rt.AddLog($"{device.DisplayName} 是本机当前连接，请用「断开连接」");
+            _rt.AddLog($"{device.DisplayName} 是本机当前连接，请用卡片底部的「断开连接」");
             return;
         }
 
@@ -844,18 +844,34 @@ public sealed partial class MainWindow : Window
         _rt.AddLog(ok ? $"{device.DisplayName} 已下线" : $"{device.DisplayName} 下线失败");
     }
 
-    /// <summary>断开本机当前这条连接。</summary>
-    private async void OnDeviceDisconnectClicked(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    /// <summary>
+    /// 断开本机当前这条连接 —— 卡片底部的页面级按钮，
+    /// 对应门户 userstatus.jsp 底部那个「断开连接」。
+    /// </summary>
+    private async void OnDeviceDisconnectSelfClicked(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
     {
         if (!_uiBuilt) return;
-        if ((sender as FrameworkElement)?.Tag is not OnlineDevice device) return;
+
+        DeviceDisconnectBtn.IsEnabled = false;
+        DeviceDisconnectLabel.Text = "断开中…";
 
         _rt.AddLog("正在断开本机连接…");
-        device.Status = "断开中";
-        OnDeviceListChanged();
 
-        var ok = await _rt.Devices.TakeOfflineAsync(device);
-        _rt.AddLog(ok ? "本机连接已断开" : "断开失败");
+        try
+        {
+            var ok = await _rt.Devices.DisconnectSelfAsync();
+            _rt.AddLog(ok
+                ? "本机连接已断开，巡检将按设置自动重新认证"
+                : "断开失败");
+        }
+        finally
+        {
+            if (_uiBuilt)
+            {
+                DeviceDisconnectBtn.IsEnabled = true;
+                DeviceDisconnectLabel.Text = "断开连接";
+            }
+        }
     }
 
     // ────────────────────────── 旧版 hosts 残留 ──────────────────────────

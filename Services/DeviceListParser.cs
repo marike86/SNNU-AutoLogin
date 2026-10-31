@@ -202,4 +202,14 @@ public static class DeviceListParser
 
         return sb.ToString();
     }
+
+    /// <summary>
+    /// 拼出「断开连接」的地址。
+    ///
+    /// 门户的 userstatus.jsp 底部那个大按钮就是它：
+    ///   &lt;a href="logoff"&gt;&lt;img src="image/duankai.gif" …&gt;&lt;/a&gt;
+    /// 断开的是**本机当前这条会话**，不是设备表格里的任意一行。
+    /// </summary>
+    public static string BuildDisconnectUrl(string portalRoot) =>
+        portalRoot.TrimEnd('/') + "/logoff";
 }

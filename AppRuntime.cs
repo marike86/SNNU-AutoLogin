@@ -80,7 +80,7 @@ public sealed class AppRuntime : IDisposable
         Coordinator.StateChanged += OnStateChanged;
         Coordinator.Log += AddLog;
 
-        Devices = new DeviceManager(dispatcher);
+        Devices = new DeviceManager(dispatcher, new PortalClient());
 
         HasLegacyHosts = HostsCleanup.HasLegacyBlock();
         LegacyHostsEntries = HasLegacyHosts ? HostsCleanup.CountLegacyEntries() : 0;

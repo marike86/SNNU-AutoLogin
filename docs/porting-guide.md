@@ -265,15 +265,28 @@ public static string BuildForceOfflineUrl(string frameUrl, string sessionId)
 
 ### 3.6 改「断开本机连接」
 
-门户状态页上有个「断开连接」按钮，指向 `logoff`：
+门户状态页底部有个大「断开连接」按钮：
+
+```html
+<a href="logoff"><img src="image/duankai.gif" height="58" width="224"></a>
+```
+
+它断的是**本机当前这条会话**（和设备表格里踢别人的「强制下线」是两件事）。
+本项目把它做成了「在线设备」卡片底部的页面级按钮：
 
 ```csharp
 // PortalClient.DisconnectAsync
-using var resp = await _http.GetAsync(RootFor(port) + "logoff", ct);
+var url = DeviceListParser.BuildDisconnectUrl(RootFor(port));   // → .../snnuportal/logoff
+using var resp = await _http.GetAsync(url, ct);
 ```
 
 你学校可能叫 `logout` / `doLogout` / `signout`，
-从状态页 HTML 里找那个 `<a href="...">` 就行。
+从状态页 HTML 里找那个 `<a href="...">` 就行，
+然后改 `DeviceListParser.BuildDisconnectUrl` 里的路径即可。
+
+**注意行为差异**：门户网页上断开后不会自己连回来，但本软件开着自动重连，
+断开几秒后巡检会重新认证 —— 与门户网页行为一致，但用户会看到「刚断开又连上」。
+若想让断开真正生效，需自行关掉「断线自动重连」开关。
 
 ---
 
@@ -287,6 +300,13 @@ dotnet run --project tests/DeviceListTests -c Release
 
 这个测试用**真实抓下来的页面**做样本（`tests/DeviceListTests/fixture_devices.html`）。
 换学校时：**抓一份你学校的新样本替换掉它**，然后改断言里的期望值。
+
+测试分三块：
+
+1. **解析** —— 从真实页面里取出设备行，断言字段与边界情况
+2. **地址构造** —— 强制下线（`type=dm`）与断开连接（`logoff`）两种地址拼得对
+3. **状态流转** —— 用 `FakePortal` 替换掉真实网络，验证 `DeviceManager` 的
+   拉列表 / 下线 / 断开各自走对接口，失败时状态与错误文案正确
 
 测试里覆盖了这些边界，换学校后请逐条确认：
 

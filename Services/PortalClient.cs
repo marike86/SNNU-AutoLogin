@@ -63,7 +63,7 @@ internal sealed class LoginPage
 /// 协议：POST application/x-www-form-urlencoded 到 /snnuportal/login，
 /// 字段 account / password / yys；认证结果按出口 IP 判定，页面为 GB2312 编码。
 /// </summary>
-public sealed class PortalClient : IDisposable
+public sealed class PortalClient : IDisposable, IOnlineDevicePortal
 {
     private const string Root = "http://202.117.144.205:8603/snnuportal/";
     private const string PortalHost = "202.117.144.205";
@@ -221,12 +221,16 @@ public sealed class PortalClient : IDisposable
         }
     }
 
-    /// <summary>断开本机当前这条连接（userstatus.jsp 上的「断开连接」）。</summary>
+    /// <summary>
+    /// 断开本机当前这条连接。
+    /// 对应门户 userstatus.jsp 底部那个「断开连接」按钮（logoff）。
+    /// </summary>
     public async Task<bool> DisconnectAsync(int port, CancellationToken ct = default)
     {
         try
         {
-            using var resp = await _http.GetAsync(RootFor(port) + "logoff", ct).ConfigureAwait(false);
+            var url = DeviceListParser.BuildDisconnectUrl(RootFor(port));
+            using var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
             return resp.IsSuccessStatusCode;
         }
         catch (OperationCanceledException)

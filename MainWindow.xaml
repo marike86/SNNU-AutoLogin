@@ -523,13 +523,12 @@
                                                         Tag="{Binding}"
                                                         Visibility="{Binding CanForceOffline, Converter={StaticResource BoolToVisibility}}" />
 
-                                                    <!--  本机当前这条连接：门户网页上的「断开连接」  -->
-                                                    <Button
-                                                        Click="OnDeviceDisconnectClicked"
-                                                        Content="断开连接"
-                                                        FontSize="12"
-                                                        Style="{StaticResource AccentButtonStyle}"
-                                                        Tag="{Binding}"
+                                                    <!--  本机当前这条连接不能强制下线，改用卡片底部的「断开连接」  -->
+                                                    <TextBlock
+                                                        VerticalAlignment="Center"
+                                                        FontSize="11"
+                                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                        Text="本机"
                                                         Visibility="{Binding IsCurrent, Converter={StaticResource BoolToVisibility}}" />
                                                 </StackPanel>
                                             </Grid>
@@ -557,6 +556,31 @@
                                 Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                 TextWrapping="Wrap"
                                 Visibility="Collapsed" />
+
+                            <!--
+                                页面级主控：断开本机当前连接。
+                                对应门户 userstatus.jsp 底部那个「断开连接」大按钮 ——
+                                它断的是本机这条会话（logoff），与设备行里的
+                                「点击下线」（踢别人，type=dm）是两件事。
+                            -->
+                            <Button
+                                x:Name="DeviceDisconnectBtn"
+                                Margin="0,12,0,2"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Click="OnDeviceDisconnectSelfClicked">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon FontSize="13" Glyph="&#xE71A;" />
+                                    <TextBlock x:Name="DeviceDisconnectLabel" FontSize="13" Text="断开连接" />
+                                </StackPanel>
+                            </Button>
+
+                            <TextBlock
+                                Margin="0,2,0,0"
+                                HorizontalAlignment="Center"
+                                Style="{StaticResource HintStyle}"
+                                Text="断开本机当前连接，巡检会按设置自动重新认证" />
 
                         </StackPanel>
                     </Border>

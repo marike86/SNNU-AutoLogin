@@ -157,5 +157,140 @@ Check("真实页面至多一台是本机",
 Check("真实页面有会话标识的设备都能强制下线",
     real.Where(d => d.SessionId is not null).All(d => d.CanForceOffline));
 
+// ─────────────────── 3. 「断开连接」：地址构造 ───────────────────
+//
+// 门户 userstatus.jsp 底部那个大按钮就是：
+//   <a href="logoff"><img src="image/duankai.gif" …></a>
+// 即 /snnuportal/logoff，断的是本机当前这条会话。
+
+Console.WriteLine("\n「断开连接」地址构造");
+
+Check("断线地址是根地址 + logoff",
+    DeviceListParser.BuildDisconnectUrl("http://202.117.144.205:8603/snnuportal/")
+        == "http://202.117.144.205:8603/snnuportal/logoff",
+    DeviceListParser.BuildDisconnectUrl("http://202.117.144.205:8603/snnuportal/"));
+
+Check("根地址末尾没斜杠时也不多出斜杠",
+    DeviceListParser.BuildDisconnectUrl("http://202.117.144.205:8603/snnuportal")
+        == "http://202.117.144.205:8603/snnuportal/logoff",
+    DeviceListParser.BuildDisconnectUrl("http://202.117.144.205:8603/snnuportal"));
+
+Check("不同接入端口拼出各自的 logoff",
+    DeviceListParser.BuildDisconnectUrl("http://202.117.144.205:8605/snnuportal/")
+        == "http://202.117.144.205:8605/snnuportal/logoff");
+
+// ─────────────────── 4. 「断开连接」与「点击下线」的分工 ───────────────────
+//
+// 页面级「断开连接」= 本机会话（logoff）
+// 行级「点击下线」  = 别人的会话（type=dm）
+// 两件事不能混。
+
+Console.WriteLine("\n按钮分工");
+
+var selfDevice = new OnlineDevice { Ip = "10.148.3.65", Mac = "70:a6:cc:cc:73:65", IsCurrent = true };
+var otherDevice = new OnlineDevice { Ip = "10.139.31.240", Mac = "06:3b:96:c0:c4:4a", SessionId = "YT-SID" };
+
+Check("本机不能强制下线（走页面级断开）", !selfDevice.CanForceOffline);
+Check("别人的会话可以强制下线", otherDevice.CanForceOffline);
+Check("别人的会话不是本机", !otherDevice.IsCurrent);
+
+// ─────────────────── 5. DeviceManager：断开本机 ───────────────────
+
+Console.WriteLine("\nDeviceManager 断开本机");
+
+var fake = new FakePortal();
+using var dm = new DeviceManager(new Microsoft.UI.Dispatching.DispatcherQueue(), fake);
+
+// 5.1 成功断开
+fake.DisconnectResult = true;
+var ok = await dm.DisconnectSelfAsync();
+
+Check("断开成功返回 true", ok);
+Check("确实调了门户的断开接口", fake.DisconnectCalls == 1, $"调用 {fake.DisconnectCalls} 次");
+Check("断开用的是当前端口", fake.LastPort == 8603, $"端口 {fake.LastPort}");
+Check("断开后没有误触发强制下线", fake.ForceOfflineCalls == 0);
+Check("断开后重新拉了一次列表", fake.GetCalls >= 1, $"拉列表 {fake.GetCalls} 次");
+
+// 5.2 断开失败 → 状态为 Failed 且带错误文案
+var fake2 = new FakePortal { DisconnectResult = false };
+using var dm2 = new DeviceManager(new Microsoft.UI.Dispatching.DispatcherQueue(), fake2);
+
+var disconnectFailed = await dm2.DisconnectSelfAsync();
+
+Check("断开失败返回 false", !disconnectFailed);
+Check("断开失败时状态是 Failed", dm2.State == DeviceListState.Failed, dm2.State.ToString());
+Check("断开失败时有错误文案", !string.IsNullOrWhiteSpace(dm2.Error), dm2.Error);
+
+// 5.3 断开失败不影响别的操作（不应调强制下线）
+Check("断开失败也没误触发强制下线", fake2.ForceOfflineCalls == 0);
+
+// 5.4 列表状态流转
+var fake3 = new FakePortal();
+using var dm3 = new DeviceManager(new Microsoft.UI.Dispatching.DispatcherQueue(), fake3);
+
+Check("初始状态是 Idle", dm3.State == DeviceListState.Idle, dm3.State.ToString());
+
+fake3.DevicesResult = DeviceListResult.Fail("未认证，无法获取在线设备");
+await dm3.RefreshAsync();
+
+Check("拉列表失败时状态是 Failed", dm3.State == DeviceListState.Failed, dm3.State.ToString());
+Check("拉列表失败时带上门户给的文案", dm3.Error.Contains("未认证"), dm3.Error);
+
+fake3.DevicesResult = DeviceListResult.Ok(
+    new[] { selfDevice, otherDevice },
+    "http://202.117.144.205:80/zili/auth_my_state.php?vloginid=20263436&ts=1&id=1");
+await dm3.RefreshAsync();
+
+Check("拉取成功后状态是 Ready", dm3.State == DeviceListState.Ready, dm3.State.ToString());
+Check("拉取成功后清掉错误文案", dm3.Error.Length == 0, dm3.Error);
+Check("列表里有 2 台设备", dm3.Devices.Count == 2, $"实际 {dm3.Devices.Count}");
+Check("设备记录了接入端口", dm3.Devices.All(d => d.Ports.Contains(8603)));
+
+// 5.5 行级「点击下线」走强制下线，不走 logoff
+var fake4 = new FakePortal
+{
+    DevicesResult = DeviceListResult.Ok(
+        new[] { otherDevice },
+        "http://202.117.144.205:80/zili/auth_my_state.php?vloginid=20263436&ts=1&id=1")
+};
+using var dm4 = new DeviceManager(new Microsoft.UI.Dispatching.DispatcherQueue(), fake4);
+await dm4.RefreshAsync();
+
+var offlineOk = await dm4.TakeOfflineAsync(otherDevice);
+
+Check("行级下线成功返回 true", offlineOk);
+Check("行级下线调的是强制下线", fake4.ForceOfflineCalls == 1, $"调用 {fake4.ForceOfflineCalls} 次");
+Check("行级下线带对了会话标识", fake4.LastSessionId == "YT-SID", fake4.LastSessionId ?? "null");
+Check("行级下线没有误调 logoff", fake4.DisconnectCalls == 0);
+
+// 5.6 强制下线失败 → 状态 Failed
+var fake5 = new FakePortal
+{
+    ForceOfflineResult = false,
+    DevicesResult = DeviceListResult.Ok(
+        new[] { otherDevice },
+        "http://202.117.144.205:80/zili/auth_my_state.php?vloginid=20263436&ts=1&id=1")
+};
+using var dm5 = new DeviceManager(new Microsoft.UI.Dispatching.DispatcherQueue(), fake5);
+await dm5.RefreshAsync();
+
+var offlineFailed = await dm5.TakeOfflineAsync(otherDevice);
+
+Check("强制下线失败返回 false", !offlineFailed);
+Check("强制下线失败时状态是 Failed", dm5.State == DeviceListState.Failed, dm5.State.ToString());
+Check("强制下线失败后设备状态回退为在线", otherDevice.Status == "在线", otherDevice.Status);
+
+// ─────────────────── 6. 切换接入端口 ───────────────────
+
+Console.WriteLine("\n接入端口切换");
+
+var fake6 = new FakePortal();
+using var dm6 = new DeviceManager(new Microsoft.UI.Dispatching.DispatcherQueue(), fake6);
+
+await dm6.RefreshAsync(8605);
+
+Check("切换端口后用的是新端口", fake6.LastPort == 8605, $"端口 {fake6.LastPort}");
+Check("切换端口后记住了该端口", dm6.Port == 8605, dm6.Port.ToString());
+
 Console.WriteLine(failed == 0 ? "\n全部通过" : $"\n{failed} 项失败");
 return failed == 0 ? 0 : 1;
